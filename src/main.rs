@@ -2,13 +2,8 @@ mod consts;
 mod downloader;
 mod error;
 
-fn test_download(bid: &str, bullet: bool) -> Result<(), error::Brror> {
-    let url = consts::URL.to_string() + bid;
-    let r = ureq::get(url.as_str())
-        .set("user-agent", consts::UA)
-        .call()?
-        .into_string()?;
-    println!("{}", r);
+fn download(bid: &str, bullet: bool) -> Result<(), error::Brror> {
+    println!("download {}, {}", bid, bullet);
     Ok(())
 }
 
@@ -36,8 +31,24 @@ fn main() -> Result<(), error::Brror> {
     let bullet = matches.is_present("bullet");
 
     if let Some(bid) = matches.value_of("target") {
-        return test_download(bid, bullet);
+        return download(bid, bullet);
     }
 
     panic!("Target is empty!")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test_download() -> Result<(), error::Brror> {
+        let url = consts::URL.to_string() + "";
+        let r = ureq::get(url.as_str())
+            .set("user-agent", consts::UA)
+            .call()?
+            .into_string()?;
+        println!("{}", r);
+        Ok(())
+    }
 }
