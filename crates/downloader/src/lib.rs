@@ -1,33 +1,64 @@
+use reqwest::Client;
+use anyhow::Result;
+
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+const RE_TITLE: &'static str = "<h1 title=\"([^\"]*)\"";
 
 #[derive(Debug)]
-pub struct Downloader {
-    url: String,
-    client: reqwest::Client,
+pub struct Video {
+    pub url: String,
+    pub title: Option<String>,
+    pub format: Option<String>,
+    pub support_chunk: bool,
 }
 
-impl Downloader {
+impl Video {
     pub fn new(bv_or_url: String) -> Self {
-        let client = reqwest::Client::builder().user_agent(UA).build().unwrap();
         let url = if bv_or_url.contains(URL) {
             bv_or_url
         } else {
             format!("{}{}", URL, bv_or_url)
         };
-        Downloader { url, client }
+        Video { url, title: None, format: None, support_chunk: false }
+    }
+}
+
+#[derive(Debug)]
+pub struct Downloader {
+    video: Video,
+    client: reqwest::Client,
+}
+
+async fn get_html(client: &Client, url: &str) -> Result<String> {
+    let text = client.get(url).send().await?.text().await?;
+    Ok(text)
+}
+
+fn search_title() -> String {
+    todo!()
+}
+
+impl Downloader {
+    pub fn new(video: Video) -> Result<Self> {
+        let client = reqwest::Client::builder().user_agent(UA).build()?;
+        Ok(Downloader { video, client })
     }
 
     pub fn download() -> () {
         todo!()
     }
 
-    pub fn url(&self) -> &str {
-        self.url.as_ref()
+    async fn plain_downloader() -> () {
+        todo!()
+    }
+
+    async fn chunk_download() -> () {
+        todo!()
+    }
+
+    async fn write_bytes() -> () {
+        todo!()
     }
 }
 
@@ -36,16 +67,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-
-    #[test]
     fn new() {
-        let downloader1 = Downloader::new(String::from("test_bv"));
-        let downloader2 = Downloader::new(String::from("https://www.bilibili.com/video/test_bv"));
-        assert!(downloader1.url().contains(URL));
-        assert!(downloader2.url().contains(URL));
+        let v1 = Video::new(String::from("test_bv"));
+        let v2 = Video::new(String::from("https://www.bilibili.com/video/test_bv"));
+        assert!(v1.url.contains(URL));
+        assert!(v2.url.contains(URL));
     }
 }
