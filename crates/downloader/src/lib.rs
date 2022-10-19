@@ -1,15 +1,22 @@
-use std::collections::HashMap;
-
 use anyhow::{Ok, Result};
+use thiserror::Error;
 
 const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const URL_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
 
+#[derive(Error, Debug)]
+pub enum DownloadError<'a> {
+    #[error("获取视频信息 {0} 失败")]
+    GetVideoInfoFail(&'a str),
+}
+
 #[derive(Debug)]
 pub struct Video {
     pub bv: String,
+    pub cid: String,
+    pub url: String,
     pub title: String,
     pub format: String,
     pub support_chunk: bool,
@@ -44,17 +51,24 @@ impl Downloader {
         let response = request_json(self.client.get(url)).await?;
         let title = response["data"]["title"]
             .as_str()
-            .unwrap_or(bv.as_str())
+            .unwrap_or_else(|| bv.as_str())
             .to_string();
-        let cid = response["data"]["cid"].as_str().unwrap();
+        let cid = response["data"]["cid1"]
+            .as_u64()
+            .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?
+            .to_string();
         let response = request_json(
             self.client
                 .get(URL_PLAY)
-                .query(&[("bvid", bv.as_str()), ("cid", cid)]),
+                .query(&[("bvid", bv.as_str()), ("cid", cid.as_str())]),
         )
         .await?;
+        let url = response["durl"][0]["url"].as_str().unwrap().to_string();
+        println!("{:#?}", response);
         Ok(Video {
             bv,
+            cid,
+            url,
             title,
             format: String::from("mp4"),
             support_chunk: false,
@@ -62,8 +76,13 @@ impl Downloader {
     }
 
     pub async fn download(&self, bv_or_url: String) -> Result<()> {
-        let video = self.build_video(bv_or_url).await?;
-        println!("download: {}", video.title);
+        let video = self.build_video(bv_or_url).await;
+        match video {
+            Err(e) => println!("{:?}", e),
+            _ => {
+                println!("video: {:#?}", video.unwrap());
+            }
+        }
         Ok(())
     }
 

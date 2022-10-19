@@ -1,12 +1,10 @@
 use downloader::Downloader;
 
-
 #[tokio::main]
 async fn main() -> () {
     let downloader = Downloader::new().unwrap();
 
-    downloader.download("BV1BU4y1r7wg".to_string()).await;
-
+    downloader.download("BV1Q14y1L76r".to_string()).await;
 
     // let matches = clap::App::new("Bilibili Video Downloader")
     //     .version(clap::crate_version!())
@@ -33,8 +31,6 @@ async fn main() -> () {
     // if let Some(bid) = matches.value_of("target") {
     //     download(bid, bullet);
     // }
-
-    
 }
 
 #[cfg(test)]
