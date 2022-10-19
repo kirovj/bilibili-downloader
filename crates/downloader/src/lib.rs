@@ -1,4 +1,6 @@
-use anyhow::{Ok, Result};
+use anyhow::Ok as AnyOk;
+use anyhow::Result;
+use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
 const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
@@ -35,6 +37,30 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
+fn is_support_chunk(headers: &HeaderMap) -> (bool, usize) {
+    let check_accept = if let Some(accept) = headers.get(ACCEPT_RANGES) {
+        match accept.to_str() {
+            Ok(value) => value.contains("bytes"),
+            _ => false,
+        }
+    } else {
+        false
+    };
+    if check_accept {
+        let content_length = headers.get(CONTENT_LENGTH);
+        if let Some(length) = content_length {
+            if let Ok(length) = length.to_str() {
+                if let Ok(length) = length.parse::<usize>() {
+                    if length > 0 {
+                        return (false, length);
+                    }
+                }
+            }
+        }
+    }
+    (false, 0)
+}
+
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
     Ok(builder.send().await?.json::<serde_json::Value>().await?)
 }
@@ -69,13 +95,20 @@ impl Downloader {
             .as_str()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?
             .to_string();
-        Ok(Video {
+        let response = self
+            .client
+            .head(&url)
+            .header("referer", "https://www.bilibili.com/")
+            .send()
+            .await?;
+        let chunk_support_info = is_support_chunk(response.headers());
+        AnyOk(Video {
             bv,
             cid,
             url,
             title,
             format: String::from("mp4"),
-            support_chunk: false,
+            support_chunk: chunk_support_info.0,
         })
     }
 
@@ -87,7 +120,7 @@ impl Downloader {
                 println!("video: {:#?}", video.unwrap());
             }
         }
-        Ok(())
+        AnyOk(())
     }
 
     async fn plain_downloader() -> () {
