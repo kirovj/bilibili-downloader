@@ -48,23 +48,27 @@ impl Downloader {
     async fn build_video(&self, bv_or_url: String) -> Result<Video> {
         let bv = extract_bv(bv_or_url);
         let url = format!("{}{}", URL_INFO, bv);
-        let response = request_json(self.client.get(url)).await?;
-        let title = response["data"]["title"]
+        let response = &request_json(self.client.get(url)).await?["data"];
+        let title = response["title"]
             .as_str()
             .unwrap_or_else(|| bv.as_str())
             .to_string();
-        let cid = response["data"]["cid1"]
+        let cid = response["cid"]
             .as_u64()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?
             .to_string();
-        let response = request_json(
+        let response = &request_json(
             self.client
                 .get(URL_PLAY)
                 .query(&[("bvid", bv.as_str()), ("cid", cid.as_str())]),
         )
-        .await?;
-        let url = response["durl"][0]["url"].as_str().unwrap().to_string();
-        println!("{:#?}", response);
+        .await?["data"];
+        let url = response["durl"]
+            .as_array()
+            .ok_or_else(|| DownloadError::GetVideoInfoFail("durl"))?[0]["url"]
+            .as_str()
+            .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?
+            .to_string();
         Ok(Video {
             bv,
             cid,
