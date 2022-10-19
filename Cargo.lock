@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "downloader",
+ "tokio",
 ]
 
 [[package]]
@@ -115,7 +116,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "reqwest",
- "tokio",
+ "serde_json",
 ]
 
 [[package]]

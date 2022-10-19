@@ -1,52 +1,70 @@
-use reqwest::Client;
-use anyhow::Result;
+use std::collections::HashMap;
 
+use anyhow::{Ok, Result};
+
+const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
+const URL_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
-const RE_TITLE: &'static str = "<h1 title=\"([^\"]*)\"";
 
 #[derive(Debug)]
 pub struct Video {
-    pub url: String,
-    pub title: Option<String>,
-    pub format: Option<String>,
+    pub bv: String,
+    pub title: String,
+    pub format: String,
     pub support_chunk: bool,
-}
-
-impl Video {
-    pub fn new(bv_or_url: String) -> Self {
-        let url = if bv_or_url.contains(URL) {
-            bv_or_url
-        } else {
-            format!("{}{}", URL, bv_or_url)
-        };
-        Video { url, title: None, format: None, support_chunk: false }
-    }
 }
 
 #[derive(Debug)]
 pub struct Downloader {
-    video: Video,
     client: reqwest::Client,
 }
 
-async fn get_html(client: &Client, url: &str) -> Result<String> {
-    let text = client.get(url).send().await?.text().await?;
-    Ok(text)
+fn extract_bv(bv_or_url: String) -> String {
+    if bv_or_url.contains(URL) {
+        todo!()
+    } else {
+        bv_or_url
+    }
 }
 
-fn search_title() -> String {
-    todo!()
+async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
+    Ok(builder.send().await?.json::<serde_json::Value>().await?)
 }
 
 impl Downloader {
-    pub fn new(video: Video) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         let client = reqwest::Client::builder().user_agent(UA).build()?;
-        Ok(Downloader { video, client })
+        Ok(Downloader { client })
     }
 
-    pub fn download() -> () {
-        todo!()
+    async fn build_video(&self, bv_or_url: String) -> Result<Video> {
+        let bv = extract_bv(bv_or_url);
+        let url = format!("{}{}", URL_INFO, bv);
+        let response = request_json(self.client.get(url)).await?;
+        let title = response["data"]["title"]
+            .as_str()
+            .unwrap_or(bv.as_str())
+            .to_string();
+        let cid = response["data"]["cid"].as_str().unwrap();
+        let response = request_json(
+            self.client
+                .get(URL_PLAY)
+                .query(&[("bvid", bv.as_str()), ("cid", cid)]),
+        )
+        .await?;
+        Ok(Video {
+            bv,
+            title,
+            format: String::from("mp4"),
+            support_chunk: false,
+        })
+    }
+
+    pub async fn download(&self, bv_or_url: String) -> Result<()> {
+        let video = self.build_video(bv_or_url).await?;
+        println!("download: {}", video.title);
+        Ok(())
     }
 
     async fn plain_downloader() -> () {
@@ -67,10 +85,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn new() {
-        let v1 = Video::new(String::from("test_bv"));
-        let v2 = Video::new(String::from("https://www.bilibili.com/video/test_bv"));
-        assert!(v1.url.contains(URL));
-        assert!(v2.url.contains(URL));
+    fn test_extract_bv() {
+        assert_eq!("xxx", extract_bv("xxx".to_string()));
+        assert_eq!(
+            "xxx",
+            extract_bv("https://www.bilibili.com/video/xxx".to_string())
+        );
     }
 }

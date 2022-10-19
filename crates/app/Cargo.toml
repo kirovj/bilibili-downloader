@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 downloader = { path = "../downloader" }
+tokio = { version = "1", features = ["full"] }
 clap = "2.34.0"

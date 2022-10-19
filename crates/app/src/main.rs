@@ -1,39 +1,40 @@
-use downloader;
+use downloader::Downloader;
 
-fn download(bid: &str, bullet: bool) -> () {
-    let add = downloader::add(1, 2);
-    println!("add {}", add);
-    println!("download {}, {}", bid, bullet);
-}
 
-fn main() -> () {
-    let matches = clap::App::new("Bilibili Video Downloader")
-        .version(clap::crate_version!())
-        .author("Kirovj")
-        .about("Don't use it illegally, I don't take any responsibility.")
-        .arg(
-            clap::Arg::with_name("target")
-                .short("t")
-                .long("target")
-                .help("Video bid")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            clap::Arg::with_name("bullet")
-                .short("b")
-                .long("bullet")
-                .help("Need bullet comment default false"),
-        )
-        .get_matches();
+#[tokio::main]
+async fn main() -> () {
+    let downloader = Downloader::new().unwrap();
 
-    let bullet = matches.is_present("bullet");
+    downloader.download("BV1BU4y1r7wg".to_string()).await;
 
-    if let Some(bid) = matches.value_of("target") {
-        download(bid, bullet);
-    }
 
-    panic!("Target is empty!")
+    // let matches = clap::App::new("Bilibili Video Downloader")
+    //     .version(clap::crate_version!())
+    //     .author("Kirovj")
+    //     .about("Don't use it illegally, I don't take any responsibility.")
+    //     .arg(
+    //         clap::Arg::with_name("target")
+    //             .short("t")
+    //             .long("target")
+    //             .help("Video bid")
+    //             .required(true)
+    //             .takes_value(true),
+    //     )
+    //     .arg(
+    //         clap::Arg::with_name("bullet")
+    //             .short("b")
+    //             .long("bullet")
+    //             .help("Need bullet comment default false"),
+    //     )
+    //     .get_matches();
+
+    // let bullet = matches.is_present("bullet");
+
+    // if let Some(bid) = matches.value_of("target") {
+    //     download(bid, bullet);
+    // }
+
+    
 }
 
 #[cfg(test)]
