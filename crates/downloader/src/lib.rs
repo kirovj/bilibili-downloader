@@ -38,22 +38,16 @@ fn extract_bv(bv_or_url: String) -> String {
 }
 
 fn is_support_chunk(headers: &HeaderMap) -> (bool, usize) {
-    let check_accept = if let Some(accept) = headers.get(ACCEPT_RANGES) {
-        match accept.to_str() {
-            Ok(value) => value.contains("bytes"),
-            _ => false,
-        }
-    } else {
-        false
-    };
-    if check_accept {
-        let content_length = headers.get(CONTENT_LENGTH);
-        if let Some(length) = content_length {
-            if let Ok(length) = length.to_str() {
-                if let Ok(length) = length.parse::<usize>() {
-                    if length > 0 {
-                        return (false, length);
-                    }
+    if let Some(accept) = headers.get(ACCEPT_RANGES) {
+        if matches!(accept.to_str(), Ok(value) if value.contains("bytes")) {
+            let content_length = headers.get(CONTENT_LENGTH);
+            if let Some(length) = content_length {
+                let len = length
+                    .to_str()
+                    .map(|len| len.parse::<usize>().unwrap_or(0))
+                    .unwrap_or(0);
+                if len > 0 {
+                    return (true, len);
                 }
             }
         }
