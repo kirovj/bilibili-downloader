@@ -136,7 +136,11 @@ impl Downloader {
         match video {
             Err(e) => println!("{:?}", e),
             _ => {
-                println!("video: {:#?}", video.unwrap());
+                let video = video.unwrap();
+                println!("download {} start, title: `{}`", video.bv, video.title);
+                if video.chunk_size > 0 {
+                    todo!()
+                }
             }
         }
         AnyOk(())
