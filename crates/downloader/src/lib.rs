@@ -1,5 +1,6 @@
 use anyhow::Ok as AnyOk;
 use anyhow::Result;
+use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
@@ -21,7 +22,7 @@ pub struct Video {
     pub url: String,
     pub title: String,
     pub format: String,
-    pub support_chunk: bool,
+    pub chunk_size: usize,
 }
 
 #[derive(Debug)]
@@ -37,22 +38,45 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
-fn is_support_chunk(headers: &HeaderMap) -> (bool, usize) {
+fn extract_chunk_size(headers: &HeaderMap) -> usize {
     if let Some(accept) = headers.get(ACCEPT_RANGES) {
         if matches!(accept.to_str(), Ok(value) if value.contains("bytes")) {
             let content_length = headers.get(CONTENT_LENGTH);
             if let Some(length) = content_length {
-                let len = length
+                return length
                     .to_str()
                     .map(|len| len.parse::<usize>().unwrap_or(0))
                     .unwrap_or(0);
-                if len > 0 {
-                    return (true, len);
-                }
             }
         }
     }
-    (false, 0)
+    0
+}
+
+fn extract_format(headers: &HeaderMap) -> String {
+    return match headers.get(CONTENT_TYPE) {
+        Some(content_type) => match content_type.to_str().unwrap_or("video/mp4") {
+            "video/mp4" => ".mp4",
+            "video/x-flv" => ".flv",
+            "application/x-mpegURL" => ".m3u8",
+            "video/MP2T" => ".ts",
+            "video/3gpp" => ".3gpp",
+            "video/quicktime" => ".mov",
+            "video/x-msvideo" => ".avi",
+            "video/x-ms-wmv" => ".wmv",
+            "audio/x-wav" => ".wav",
+            "audio/x-mp3" => ".mp3",
+            "audio/mp4"   => ".mp4",
+            "application/ogg" => ".ogg",
+            "image/jpeg" => ".jpeg",
+            "image/png"  => ".png",
+            "image/tiff" => ".tiff",
+            "image/gif"  => ".gif",
+            "image/svg+xml" => ".svg",
+            _ => ".mp4"
+        },
+        None => ".mp4",
+    }.to_string();
 }
 
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
@@ -95,14 +119,15 @@ impl Downloader {
             .header("referer", "https://www.bilibili.com/")
             .send()
             .await?;
-        let chunk_support_info = is_support_chunk(response.headers());
+        let format = extract_format(response.headers());
+        let chunk_size = extract_chunk_size(response.headers());
         AnyOk(Video {
             bv,
             cid,
             url,
             title,
-            format: String::from("mp4"),
-            support_chunk: chunk_support_info.0,
+            format,
+            chunk_size,
         })
     }
 
