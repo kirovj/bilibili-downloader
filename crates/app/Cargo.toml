@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 downloader = { path = "../downloader" }
 tokio = { version = "1", features = ["full"] }
+futures = { version = "^0.3.23" }
 clap = "2.34.0"

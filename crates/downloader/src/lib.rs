@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Ok as AnyOk;
 use anyhow::Result;
 use reqwest::header::CONTENT_TYPE;
@@ -15,17 +17,17 @@ pub enum DownloadError<'a> {
     GetVideoInfoFail(&'a str),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Video {
     pub bv: String,
     pub cid: String,
     pub url: String,
     pub title: String,
     pub format: String,
-    pub chunk_size: usize,
+    pub content_lenth: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Downloader {
     client: reqwest::Client,
 }
@@ -38,7 +40,7 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
-fn extract_chunk_size(headers: &HeaderMap) -> usize {
+fn extract_content_lenth(headers: &HeaderMap) -> usize {
     if let Some(accept) = headers.get(ACCEPT_RANGES) {
         if matches!(accept.to_str(), Ok(value) if value.contains("bytes")) {
             let content_length = headers.get(CONTENT_LENGTH);
@@ -66,17 +68,18 @@ fn extract_format(headers: &HeaderMap) -> String {
             "video/x-ms-wmv" => ".wmv",
             "audio/x-wav" => ".wav",
             "audio/x-mp3" => ".mp3",
-            "audio/mp4"   => ".mp4",
+            "audio/mp4" => ".mp4",
             "application/ogg" => ".ogg",
             "image/jpeg" => ".jpeg",
-            "image/png"  => ".png",
+            "image/png" => ".png",
             "image/tiff" => ".tiff",
-            "image/gif"  => ".gif",
+            "image/gif" => ".gif",
             "image/svg+xml" => ".svg",
-            _ => ".mp4"
+            _ => ".mp4",
         },
         None => ".mp4",
-    }.to_string();
+    }
+    .to_string();
 }
 
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
@@ -89,7 +92,7 @@ impl Downloader {
         Ok(Downloader { client })
     }
 
-    async fn build_video(&self, bv_or_url: String) -> Result<Video> {
+    pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
         let bv = extract_bv(bv_or_url);
         let url = format!("{}{}", URL_INFO, bv);
         let response = &request_json(self.client.get(url)).await?["data"];
@@ -120,41 +123,22 @@ impl Downloader {
             .send()
             .await?;
         let format = extract_format(response.headers());
-        let chunk_size = extract_chunk_size(response.headers());
+        let content_lenth = extract_content_lenth(response.headers());
         AnyOk(Video {
             bv,
             cid,
             url,
             title,
             format,
-            chunk_size,
+            content_lenth,
         })
     }
 
-    pub async fn download(&self, bv_or_url: String) -> Result<()> {
-        let video = self.build_video(bv_or_url).await;
-        match video {
-            Err(e) => println!("{:?}", e),
-            _ => {
-                let video = video.unwrap();
-                println!("download {} start, title: `{}`", video.bv, video.title);
-                if video.chunk_size > 0 {
-                    todo!()
-                }
-            }
-        }
-        AnyOk(())
+    pub async fn download_chunk(self: Arc<Self>, video: Video, start: usize, length: usize) -> () {
+        println!("download {}, from {} to {}", video.bv, start, length);
     }
 
-    async fn plain_downloader() -> () {
-        todo!()
-    }
-
-    async fn chunk_download() -> () {
-        todo!()
-    }
-
-    async fn write_bytes() -> () {
+    pub async fn write_bytes(&self) -> () {
         todo!()
     }
 }
