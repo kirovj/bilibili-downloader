@@ -12,8 +12,11 @@ async fn download_chunks(downloader: Arc<Downloader>, video: Arc<Video>) {
     let mut start = 0;
     let mut end = 0;
 
-    while end <= video.content_lenth {
+    while end < video.content_lenth {
         end += chunk_size;
+        if end > video.content_lenth {
+            end = video.content_lenth;
+        }
         range_list.push((start, end));
         start = end + 1;
     }

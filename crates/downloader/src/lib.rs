@@ -158,10 +158,10 @@ impl Downloader {
             .client
             .get(video.url.as_str())
             .header("referer", "https://www.bilibili.com/")
-            .header("Range", format!("bytes={}-{}", range.0, range.1))
+            .header("range", format!("bytes={}-{}", range.0, range.1))
             .send()
             .await?;
-        let mut offset = range.0;
+        let mut offset = 0;
         while let Some(bytes) = response.chunk().await? {
             let bv = video.bv.as_str();
             let filepath = format!("{}/{}_{}", bv, bv, index);
