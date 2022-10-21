@@ -24,7 +24,7 @@ pub struct Video {
     pub url: String,
     pub title: String,
     pub format: String,
-    pub content_lenth: usize,
+    pub content_lenth: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -40,14 +40,14 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
-fn extract_content_lenth(headers: &HeaderMap) -> usize {
+fn extract_content_lenth(headers: &HeaderMap) -> u64 {
     if let Some(accept) = headers.get(ACCEPT_RANGES) {
         if matches!(accept.to_str(), Ok(value) if value.contains("bytes")) {
             let content_length = headers.get(CONTENT_LENGTH);
             if let Some(length) = content_length {
                 return length
                     .to_str()
-                    .map(|len| len.parse::<usize>().unwrap_or(0))
+                    .map(|len| len.parse::<usize>().unwrap_or(0) as u64)
                     .unwrap_or(0);
             }
         }
@@ -80,6 +80,20 @@ fn extract_format(headers: &HeaderMap) -> String {
         None => ".mp4",
     }
     .to_string();
+}
+
+async fn write_bytes_to_file(
+    filepath: &str,
+    bytes: &[u8],
+    offset: u64,
+) -> Result<usize, std::io::Error> {
+    use std::fs;
+    use std::os::windows::fs::FileExt;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(filepath)?;
+    file.seek_write(&bytes, offset)
 }
 
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
@@ -134,12 +148,33 @@ impl Downloader {
         })
     }
 
-    pub async fn download_chunk(self: Arc<Self>, video: Video, start: usize, length: usize) -> () {
-        println!("download {}, from {} to {}", video.bv, start, length);
-    }
-
-    pub async fn write_bytes(&self) -> () {
-        todo!()
+    pub async fn download_chunk(
+        self: Arc<Self>,
+        video: Arc<Video>,
+        range: (u64, u64),
+        index: u8,
+    ) -> Result<()> {
+        let mut response = self
+            .client
+            .get(video.url.as_str())
+            .header("referer", "https://www.bilibili.com/")
+            .header("Range", format!("bytes={}-{}", range.0, range.1))
+            .send()
+            .await?;
+        let mut offset = range.0;
+        while let Some(bytes) = response.chunk().await? {
+            let bv = video.bv.as_str();
+            let filepath = format!("{}/{}_{}", bv, bv, index);
+            let len = bytes.len() as u64;
+            match write_bytes_to_file(filepath.as_str(), &bytes, offset).await {
+                Err(e) => {
+                    println!("Write file fail, error:{:?}", e)
+                }
+                _ => {}
+            };
+            offset += len;
+        }
+        AnyOk(())
     }
 }
 
