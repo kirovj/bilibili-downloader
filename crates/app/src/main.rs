@@ -1,5 +1,8 @@
-use std::fs;
 use std::sync::Arc;
+use tokio::{
+    fs,
+    io::{self, AsyncReadExt, AsyncWriteExt},
+};
 
 use downloader::{Downloader, Video};
 use futures::future::join_all;
@@ -34,7 +37,7 @@ async fn download_chunks(downloader: Arc<Downloader>, video: Arc<Video>) {
     join_all(handler_list).await;
 }
 
-async fn download_entry(bv: &str) -> bool {
+async fn download_entry(bv: &str) -> Arc<Video> {
     let downloader = Arc::new(Downloader::new().unwrap());
 
     let video = downloader
@@ -42,24 +45,67 @@ async fn download_entry(bv: &str) -> bool {
         .await
         .map_or_else(|e| panic!("{}", e), |v| Arc::new(v));
 
-    match fs::create_dir(bv) {
+    match fs::create_dir(bv).await {
         Ok(_) => {
-            println!("download {} start, title: `{}`", video.bv, video.title);
-            if video.content_lenth > 0 {
-                download_chunks(downloader, video).await;
+            let clone = video.clone();
+            println!("download {} start, title: `{}`", clone.bv, clone.title);
+            if clone.content_lenth > 0 {
+                download_chunks(downloader, clone).await;
             } else {
                 todo!()
             }
+            return video;
         }
         Err(_) => panic!("create video dir failed"),
     }
-    true
+}
+
+async fn create_file(filepath: String) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(filepath)
+        .await
+}
+
+async fn merge_chunk_files(video: Arc<Video>) -> () {
+    let mut file = match create_file(format!("{}/{}.{}", video.bv, video.title, video.format)).await
+    {
+        Ok(f) => f,
+        Err(_) => create_file(format!("{}/{}.{}", video.bv, video.bv, video.format))
+            .await
+            .map_or_else(|_| panic!("create result file fail"), |f| f),
+    };
+
+    for index in 0..TASK_NUM + 1 {
+        let chunk_path = format!("{}/{}_{}", video.bv, video.bv, index);
+        match fs::File::open(chunk_path).await {
+            Ok(mut chunk_file) => {
+                println!("merge file {}", index);
+                let size = chunk_file.metadata().await.map_or_else(
+                    |_| panic!("read chunk file size fail"),
+                    |metadata| metadata.len(),
+                );
+                let mut buf = vec![0; size as usize];
+                chunk_file
+                    .read_exact(&mut buf)
+                    .await
+                    .unwrap_or_else(|_| panic!("read chunk file fail"));
+                file.write_all(&buf)
+                    .await
+                    .map_or_else(|_e| panic!("read chunk file fail"), |_| {});
+            }
+            Err(_) => continue,
+        }
+    }
+    println!("merge file finished");
 }
 
 #[tokio::main]
 async fn main() -> () {
     let bv = "BV1Q14y1L76r";
-    let _ = download_entry(bv).await;
+    let video = download_entry(bv).await;
+    let _ = merge_chunk_files(video).await;
 
     // let matches = clap::App::new("Bilibili Video Downloader")
     //     .version(clap::crate_version!())
