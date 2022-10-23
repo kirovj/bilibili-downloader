@@ -72,9 +72,12 @@ async fn merge_chunk_files(video: Arc<Video>) -> () {
     let mut file = match create_file(format!("{}/{}.{}", video.bv, video.title, video.format)).await
     {
         Ok(f) => f,
-        Err(_) => create_file(format!("{}/{}.{}", video.bv, video.bv, video.format))
-            .await
-            .map_or_else(|_| panic!("create result file fail"), |f| f),
+        Err(_) => {
+            println!("cannot create file named by title, use bv instead");
+            create_file(format!("{}/{}.{}", video.bv, video.bv, video.format))
+                .await
+                .map_or_else(|_| panic!("create result file fail"), |f| f)
+        }
     };
 
     for index in 0..TASK_NUM + 1 {
