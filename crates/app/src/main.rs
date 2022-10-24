@@ -25,7 +25,6 @@ async fn download_chunks(downloader: Arc<Downloader>, video: Arc<Video>) {
     }
 
     let mut handler_list = vec![];
-
     for (index, range) in range_list.into_iter().enumerate() {
         println!("download chunk {} from {} to {}", index, range.0, range.1);
         let downloader = downloader.clone();
@@ -34,6 +33,9 @@ async fn download_chunks(downloader: Arc<Downloader>, video: Arc<Video>) {
             tokio::spawn(async move { downloader.download_chunk(video, range, index as u8).await });
         handler_list.push(handler);
     }
+    // handler_list.push(tokio::spawn(async move {
+    //     downloader.download_bullet(video).await
+    // }));
     join_all(handler_list).await;
 }
 
@@ -139,10 +141,16 @@ async fn main() -> () {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
 
-    // #[test]
-    // pub fn test_download() -> Result<(), error::Brror> {
-
-    // }
+    #[tokio::test]
+    async fn test_download_bullet() {
+        let downloader = Downloader::new().unwrap();
+        let video = downloader
+            .build_video("BV1Q14y1L76r".to_string())
+            .await
+            .unwrap();
+        let downloader = Arc::new(downloader);
+        let _ = downloader.download_bullet(Arc::new(video)).await;
+    }
 }

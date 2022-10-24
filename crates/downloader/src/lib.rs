@@ -8,6 +8,7 @@ use thiserror::Error;
 
 const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const URL_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
+const URL_BULLET: &'static str = "https://api.bilibili.com/x/v1/dm/list.so?oid=";
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
 
@@ -175,6 +176,36 @@ impl Downloader {
             offset += len;
         }
         AnyOk(())
+    }
+
+    pub async fn download_bullet(self: Arc<Self>, video: Arc<Video>) -> Result<String> {
+        let response = self
+            .client
+            .get(format!("{}{}", URL_BULLET, video.cid))
+            .header("accept-encoding", "gzip, deflate, br")
+            .header("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
+            .header("accept-language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
+            .send()
+            .await?;
+        // println!("headers: {:#?}", response.headers());
+        match response.text().await {
+            Err(e) => {
+                println!("{}", e);
+                AnyOk("".to_string())
+            }
+            Ok(s) => AnyOk(s),
+        }
+        // println!("text: {}", text);
+        // let bytes = text.as_bytes();
+        // let bv = video.bv.as_str();
+        // let filepath = format!("{}/{}_bullet", bv, bv);
+        // match write_bytes_to_file(filepath.as_str(), &bytes, 0).await {
+        //     Err(e) => {
+        //         println!("Write bullet file fail, error:{:?}", e)
+        //     }
+        //     _ => {}
+        // };
+        // AnyOk(())
     }
 }
 
