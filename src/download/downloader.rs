@@ -6,6 +6,8 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
+use super::Video;
+
 const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const URL_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
 const URL_BULLET: &'static str = "https://api.bilibili.com/x/v1/dm/list.so?oid=";
@@ -16,16 +18,6 @@ const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 pub enum DownloadError<'a> {
     #[error("获取视频信息 {0} 失败")]
     GetVideoInfoFail(&'a str),
-}
-
-#[derive(Debug, Clone)]
-pub struct Video {
-    pub bv: String,
-    pub cid: String,
-    pub url: String,
-    pub title: String,
-    pub format: String,
-    pub content_lenth: u64,
 }
 
 #[derive(Debug, Clone)]

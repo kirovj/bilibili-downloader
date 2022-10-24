@@ -1,10 +1,11 @@
+use bilibili_downloader::Downloader;
+use bilibili_downloader::Video;
 use std::sync::Arc;
 use tokio::{
     fs,
     io::{self, AsyncReadExt, AsyncWriteExt},
 };
 
-use downloader::{Downloader, Video};
 use futures::future::join_all;
 
 const TASK_NUM: u8 = 8;
