@@ -152,6 +152,7 @@ mod tests {
             .await
             .unwrap();
         let downloader = Arc::new(downloader);
-        let _ = downloader.download_bullet(Arc::new(video)).await;
+        let a = downloader.download_bullet(Arc::new(video)).await;
+        println!("{:#?}", a);
     }
 }

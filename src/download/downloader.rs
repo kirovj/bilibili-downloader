@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
-use anyhow::Ok as AnyOk;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use prost::Message;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
 use super::Video;
 
-const URL_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
-const URL_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
-const URL_BULLET: &'static str = "https://api.bilibili.com/x/v1/dm/list.so?oid=";
+const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
+const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
+const API_BULLET: &'static str = "http://api.bilibili.com/x/v2/dm/web/seg.so";
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
 
@@ -18,6 +18,8 @@ const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 pub enum DownloadError<'a> {
     #[error("获取视频信息 {0} 失败")]
     GetVideoInfoFail(&'a str),
+    #[error("NotSupportChunk")]
+    NotSupportChunk,
 }
 
 #[derive(Debug, Clone)]
@@ -33,19 +35,23 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
-fn extract_content_lenth(headers: &HeaderMap) -> u64 {
-    if let Some(accept) = headers.get(ACCEPT_RANGES) {
-        if matches!(accept.to_str(), Ok(value) if value.contains("bytes")) {
-            let content_length = headers.get(CONTENT_LENGTH);
-            if let Some(length) = content_length {
-                return length
-                    .to_str()
-                    .map(|len| len.parse::<usize>().unwrap_or(0) as u64)
-                    .unwrap_or(0);
-            }
-        }
-    }
-    0
+fn extract_content_lenth(headers: &HeaderMap) -> Result<u64> {
+    let check_accept = headers
+        .get(ACCEPT_RANGES)
+        .ok_or_else(|| DownloadError::NotSupportChunk)?
+        .to_str()?
+        .contains("bytes");
+
+    let content_length = if check_accept {
+        headers
+            .get(CONTENT_LENGTH)
+            .ok_or_else(|| DownloadError::NotSupportChunk)?
+            .to_str()?
+            .parse::<usize>()?
+    } else {
+        0
+    };
+    Ok(content_length as u64)
 }
 
 fn extract_format(headers: &HeaderMap) -> String {
@@ -101,7 +107,7 @@ impl Downloader {
 
     pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
         let bv = extract_bv(bv_or_url);
-        let url = format!("{}{}", URL_INFO, bv);
+        let url = format!("{}{}", API_INFO, bv);
         let response = &request_json(self.client.get(url)).await?["data"];
         let title = response["title"]
             .as_str()
@@ -109,12 +115,11 @@ impl Downloader {
             .to_string();
         let cid = response["cid"]
             .as_u64()
-            .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?
-            .to_string();
+            .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?;
         let response = &request_json(
             self.client
-                .get(URL_PLAY)
-                .query(&[("bvid", bv.as_str()), ("cid", cid.as_str())]),
+                .get(API_PLAY)
+                .query(&[("bvid", bv.as_str()), ("cid", cid.to_string().as_str())]),
         )
         .await?["data"];
         let url = response["durl"]
@@ -130,8 +135,8 @@ impl Downloader {
             .send()
             .await?;
         let format = extract_format(response.headers());
-        let content_lenth = extract_content_lenth(response.headers());
-        AnyOk(Video {
+        let content_lenth = extract_content_lenth(response.headers()).unwrap_or(0);
+        Ok(Video {
             bv,
             cid,
             url,
@@ -167,37 +172,20 @@ impl Downloader {
             };
             offset += len;
         }
-        AnyOk(())
+        Ok(())
     }
 
     pub async fn download_bullet(self: Arc<Self>, video: Arc<Video>) -> Result<String> {
         let response = self
             .client
-            .get(format!("{}{}", URL_BULLET, video.cid))
-            .header("accept-encoding", "gzip, deflate, br")
-            .header("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
-            .header("accept-language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
+            .get(API_BULLET)
+            .query(&[("oid", video.cid), ("segment_index", 1), ("type", 1)])
             .send()
             .await?;
-        // println!("headers: {:#?}", response.headers());
-        match response.text().await {
-            Err(e) => {
-                println!("{}", e);
-                AnyOk("".to_string())
-            }
-            Ok(s) => AnyOk(s),
-        }
-        // println!("text: {}", text);
-        // let bytes = text.as_bytes();
-        // let bv = video.bv.as_str();
-        // let filepath = format!("{}/{}_bullet", bv, bv);
-        // match write_bytes_to_file(filepath.as_str(), &bytes, 0).await {
-        //     Err(e) => {
-        //         println!("Write bullet file fail, error:{:?}", e)
-        //     }
-        //     _ => {}
-        // };
-        // AnyOk(())
+        let content = response.bytes().await?;
+        let reply = super::BulletSegment::decode(content).context("请求 body 无法解析为 PB")?;
+        println!("{:?}", reply);
+        Ok("".to_string())
     }
 }
 
