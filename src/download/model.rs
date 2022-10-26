@@ -14,6 +14,26 @@ pub struct Video {
     pub content_lenth: u64,
 }
 
+impl Video {
+    pub fn new(
+        bv: String,
+        cid: u64,
+        url: String,
+        title: String,
+        format: String,
+        content_lenth: u64,
+    ) -> Self {
+        Video {
+            bv,
+            cid,
+            url,
+            title,
+            format,
+            content_lenth,
+        }
+    }
+}
+
 /// 弹幕 pb 定义
 #[derive(Clone, Message)]
 pub struct Bullet {

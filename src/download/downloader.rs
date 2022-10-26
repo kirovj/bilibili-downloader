@@ -6,7 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
-use super::{Video, BulletSegment};
+use super::{BulletSegment, Video};
 
 const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
@@ -148,14 +148,7 @@ impl Downloader {
             .await?;
         let format = extract_format(response.headers());
         let content_lenth = extract_content_lenth(response.headers()).unwrap_or(0);
-        Ok(Video {
-            bv,
-            cid,
-            url,
-            title,
-            format,
-            content_lenth,
-        })
+        Ok(Video::new(bv, cid, url, title, format, content_lenth))
     }
 
     pub async fn download_chunk(
