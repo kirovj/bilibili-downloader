@@ -6,7 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
-use super::Video;
+use super::{Video, BulletSegment};
 
 const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
@@ -192,7 +192,7 @@ impl Downloader {
         let content = response.bytes().await?;
         let reply = super::BulletSegment::decode(content).context("请求 body 无法解析为 PB")?;
         println!("{:?}", reply);
-        Ok("".to_string())
+        Ok(reply)
     }
 }
 
