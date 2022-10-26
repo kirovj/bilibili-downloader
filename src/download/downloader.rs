@@ -18,8 +18,6 @@ const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 pub enum DownloadError<'a> {
     #[error("获取视频信息 {0} 失败")]
     GetVideoInfoFail(&'a str),
-    #[error("NotSupportChunk")]
-    NotSupportChunk,
 }
 
 #[derive(Debug, Clone)]
@@ -36,18 +34,16 @@ fn extract_bv(bv_or_url: String) -> String {
 }
 
 fn extract_content_lenth(headers: &HeaderMap) -> Result<u64> {
-    let check_accept = headers
-        .get(ACCEPT_RANGES)
-        .ok_or_else(|| DownloadError::NotSupportChunk)?
-        .to_str()?
-        .contains("bytes");
+    let check_accept = match headers.get(ACCEPT_RANGES) {
+        Some(accept_ranges) => accept_ranges.to_str()?.contains("bytes"),
+        None => false,
+    };
 
     let content_length = if check_accept {
-        headers
-            .get(CONTENT_LENGTH)
-            .ok_or_else(|| DownloadError::NotSupportChunk)?
-            .to_str()?
-            .parse::<usize>()?
+        match headers.get(CONTENT_LENGTH) {
+            Some(lenth) => lenth.to_str()?.parse::<usize>()?,
+            None => 0,
+        }
     } else {
         0
     };
@@ -81,6 +77,7 @@ fn extract_format(headers: &HeaderMap) -> String {
     .to_string();
 }
 
+#[cfg(target_family = "windows")]
 async fn write_bytes_to_file(
     filepath: &str,
     bytes: &[u8],
@@ -93,6 +90,21 @@ async fn write_bytes_to_file(
         .write(true)
         .open(filepath)?;
     file.seek_write(&bytes, offset)
+}
+
+#[cfg(target_family = "unix")]
+async fn write_bytes_to_file(
+    filepath: &str,
+    bytes: &[u8],
+    offset: u64,
+) -> Result<usize, std::io::Error> {
+    use std::fs;
+    use std::os::unix::fs::FileExt;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(filepath)?;
+    file.write_at(bytes, offset)
 }
 
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
@@ -164,18 +176,13 @@ impl Downloader {
             let bv = video.bv.as_str();
             let filepath = format!("{}/{}_{}", bv, bv, index);
             let len = bytes.len() as u64;
-            match write_bytes_to_file(filepath.as_str(), &bytes, offset).await {
-                Err(e) => {
-                    println!("Write file fail, error:{:?}", e)
-                }
-                _ => {}
-            };
+            write_bytes_to_file(filepath.as_str(), &bytes, offset).await?;
             offset += len;
         }
         Ok(())
     }
 
-    pub async fn download_bullet(self: Arc<Self>, video: Arc<Video>) -> Result<String> {
+    pub async fn download_bullet(self: Arc<Self>, video: Arc<Video>) -> Result<BulletSegment> {
         let response = self
             .client
             .get(API_BULLET)
