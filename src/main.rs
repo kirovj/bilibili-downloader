@@ -143,16 +143,18 @@ async fn main() -> () {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[tokio::test]
-    async fn test_download_bullet() {
+    async fn test_download_bullet() -> Result<()> {
         let downloader = Downloader::new().unwrap();
         let video = downloader
             .build_video("BV1Q14y1L76r".to_string())
             .await
             .unwrap();
         let downloader = Arc::new(downloader);
-        let a = downloader.download_bullet(Arc::new(video)).await;
+        let a = downloader.download_bullet(Arc::new(video)).await?;
         println!("{:#?}", a);
+        Ok(())
     }
 }
