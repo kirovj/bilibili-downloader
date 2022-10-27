@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use prost::Message;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
@@ -18,6 +18,8 @@ const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/
 pub enum DownloadError<'a> {
     #[error("获取视频信息 {0} 失败")]
     GetVideoInfoFail(&'a str),
+    #[error("获取弹幕包失败 cid: {0}, segment: {1}")]
+    GetDanmakuSegmentFail(u64, u64),
 }
 
 #[derive(Debug, Clone)]
@@ -186,17 +188,18 @@ impl Downloader {
         Ok(())
     }
 
-    pub async fn download_danmaku(self: Arc<Self>, video: Arc<Video>) -> Result<DanmakuSegment> {
-        let response = self
-            .client
-            .get(API_BULLET)
-            .query(&[("oid", video.cid), ("segment_index", 1), ("type", 1)])
-            .send()
-            .await?;
-        let content = response.bytes().await?;
-        let reply = super::DanmakuSegment::decode(content).context("请求 body 无法解析为 PB")?;
-        println!("{:?}", reply);
-        Ok(reply)
+    pub async fn download_danmaku(
+        self: Arc<Self>,
+        video: Arc<Video>,
+    ) -> Result<Vec<DanmakuSegment>> {
+        let mut fut = vec![];
+        let bags = (video.duration + 359) / 360;
+        for i in 0..bags {
+            let downloader = self.clone();
+            let video = video.clone();
+            fut.push(downloader.download_danmaku_segment(video, i + 1));
+        }
+        futures::future::try_join_all(fut).await
     }
 
     pub async fn download_danmaku_segment(
@@ -215,7 +218,10 @@ impl Downloader {
             .send()
             .await?;
         let content = response.bytes().await?;
-        super::DanmakuSegment::decode(content).context("请求 body 无法解析为 PB")
+        match super::DanmakuSegment::decode(content) {
+            Ok(v) => Ok(v),
+            Err(_) => Err(DownloadError::GetDanmakuSegmentFail(video.cid, seg_index).into()),
+        }
     }
 }
 
