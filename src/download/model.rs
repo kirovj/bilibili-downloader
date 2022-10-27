@@ -10,33 +10,16 @@ pub struct Video {
     pub cid: u64,
     pub url: String,
     pub title: String,
+    /// 格式
     pub format: String,
+    /// 时长
+    pub duration: u64,
     pub content_lenth: u64,
-}
-
-impl Video {
-    pub fn new(
-        bv: String,
-        cid: u64,
-        url: String,
-        title: String,
-        format: String,
-        content_lenth: u64,
-    ) -> Self {
-        Video {
-            bv,
-            cid,
-            url,
-            title,
-            format,
-            content_lenth,
-        }
-    }
 }
 
 /// 弹幕 pb 定义
 #[derive(Clone, Message)]
-pub struct Bullet {
+pub struct DanmakuElem {
     /// 弹幕 dmid
     #[prost(int64, tag = "1")]
     pub id: i64,
@@ -91,7 +74,7 @@ pub struct Bullet {
 }
 
 #[derive(Clone, Message)]
-pub struct BulletSegment {
+pub struct DanmakuSegment {
     #[prost(message, repeated, tag = "1")]
-    pub elems: Vec<Bullet>,
+    pub elems: Vec<DanmakuElem>,
 }

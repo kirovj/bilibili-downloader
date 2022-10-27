@@ -6,7 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
-use super::{BulletSegment, Video};
+use super::{DanmakuSegment, Video};
 
 const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
@@ -128,6 +128,9 @@ impl Downloader {
         let cid = response["cid"]
             .as_u64()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?;
+        let duration = response["duration"]
+            .as_u64()
+            .ok_or_else(|| DownloadError::GetVideoInfoFail("duration"))?;
         let response = &request_json(
             self.client
                 .get(API_PLAY)
@@ -148,7 +151,15 @@ impl Downloader {
             .await?;
         let format = extract_format(response.headers());
         let content_lenth = extract_content_lenth(response.headers()).unwrap_or(0);
-        Ok(Video::new(bv, cid, url, title, format, content_lenth))
+        Ok(Video {
+            bv,
+            cid,
+            url,
+            title,
+            format,
+            duration,
+            content_lenth,
+        })
     }
 
     pub async fn download_chunk(
@@ -175,7 +186,7 @@ impl Downloader {
         Ok(())
     }
 
-    pub async fn download_bullet(self: Arc<Self>, video: Arc<Video>) -> Result<BulletSegment> {
+    pub async fn download_danmaku(self: Arc<Self>, video: Arc<Video>) -> Result<DanmakuSegment> {
         let response = self
             .client
             .get(API_BULLET)
@@ -183,9 +194,28 @@ impl Downloader {
             .send()
             .await?;
         let content = response.bytes().await?;
-        let reply = super::BulletSegment::decode(content).context("请求 body 无法解析为 PB")?;
+        let reply = super::DanmakuSegment::decode(content).context("请求 body 无法解析为 PB")?;
         println!("{:?}", reply);
         Ok(reply)
+    }
+
+    pub async fn download_danmaku_segment(
+        self: Arc<Self>,
+        video: Arc<Video>,
+        seg_index: u64,
+    ) -> Result<DanmakuSegment> {
+        let response = self
+            .client
+            .get(API_BULLET)
+            .query(&[
+                ("oid", video.cid),
+                ("segment_index", seg_index),
+                ("type", 1),
+            ])
+            .send()
+            .await?;
+        let content = response.bytes().await?;
+        super::DanmakuSegment::decode(content).context("请求 body 无法解析为 PB")
     }
 }
 
