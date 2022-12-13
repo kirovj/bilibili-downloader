@@ -3,6 +3,7 @@
 //! 弹幕的 probuf
 
 use prost::Message;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct Video {
@@ -18,7 +19,7 @@ pub struct Video {
 }
 
 /// 弹幕 pb 定义
-#[derive(Clone, Message)]
+#[derive(Clone, Message, Serialize, Deserialize)]
 pub struct DanmakuElem {
     /// 弹幕 dmid
     #[prost(int64, tag = "1")]

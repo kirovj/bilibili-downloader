@@ -34,9 +34,6 @@ async fn download_chunks(downloader: Arc<Downloader>, video: Arc<Video>) {
             tokio::spawn(async move { downloader.download_chunk(video, range, index as u8).await });
         handler_list.push(handler);
     }
-    // handler_list.push(tokio::spawn(async move {
-    //     downloader.download_bullet(video).await
-    // }));
     join_all(handler_list).await;
 }
 
@@ -142,19 +139,38 @@ async fn main() -> () {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs::OpenOptions, io::Write};
+
     use super::*;
     use anyhow::Result;
 
     #[tokio::test]
+    async fn test_download_video() -> Result<()> {
+        let bv = "bvid";
+        let video = download_entry(bv).await;
+        merge_chunk_files(video).await;
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_download_bullet() -> Result<()> {
+        let bv = "bvid";
         let downloader = Downloader::new().unwrap();
-        let video = downloader
-            .build_video("BV1Q14y1L76r".to_string())
-            .await
-            .unwrap();
+        let video = downloader.build_video(bv.to_string()).await.unwrap();
         let downloader = Arc::new(downloader);
-        let a = downloader.download_danmaku(Arc::new(video)).await?;
-        println!("{:#?}", a);
+        let danmuku_list = downloader.download_danmaku(Arc::new(video)).await?;
+        let mut file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(format!("{}_danmuku.txt", bv))
+            .expect("cannot open file");
+        for danmuku_seg in danmuku_list {
+            for danmuku in danmuku_seg.elems {
+                if let Ok(json) = serde_json::to_string(&danmuku) {
+                    file.write_all(format!("{}\n", json).as_bytes())?;
+                }
+            }
+        }
         Ok(())
     }
 }
