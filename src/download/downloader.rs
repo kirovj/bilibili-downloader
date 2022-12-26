@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures::future::join_all;
 use prost::Message;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
@@ -25,6 +26,8 @@ pub enum DownloadError<'a> {
 #[derive(Debug, Clone)]
 pub struct Downloader {
     client: reqwest::Client,
+    cookies: Vec<(String, String)>,
+    task_num: u8,
 }
 
 fn extract_bv(bv_or_url: String) -> String {
@@ -116,7 +119,11 @@ async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Va
 impl Downloader {
     pub fn new() -> Result<Self> {
         let client = reqwest::Client::builder().user_agent(UA).build()?;
-        Ok(Downloader { client })
+        Ok(Downloader {
+            client,
+            cookies: vec![],
+            task_num: 8,
+        })
     }
 
     pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
@@ -162,6 +169,36 @@ impl Downloader {
             duration,
             content_lenth,
         })
+    }
+
+    pub async fn download_chunks(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
+        let chunk_size = video.content_lenth / self.task_num as u64;
+        let mut range_list = vec![];
+        let mut start = 0;
+        let mut end = 0;
+
+        while end < video.content_lenth {
+            end += chunk_size;
+            if end > video.content_lenth {
+                end = video.content_lenth;
+            }
+            range_list.push((start, end));
+            start = end + 1;
+        }
+
+        let mut handler_list = vec![];
+        for (index, range) in range_list.into_iter().enumerate() {
+            println!("download chunk {} from {} to {}", index, range.0, range.1);
+            let downloader = self.clone();
+            let video = video.clone();
+            let handler =
+                tokio::spawn(
+                    async move { downloader.download_chunk(video, range, index as u8).await },
+                );
+            handler_list.push(handler);
+        }
+        join_all(handler_list).await;
+        Ok(())
     }
 
     pub async fn download_chunk(
