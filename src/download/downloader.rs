@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::future::join_all;
 use prost::Message;
+use reqwest::cookie::Jar;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
@@ -12,6 +13,7 @@ use super::{DanmakuSegment, Video};
 const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bvid=";
 const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
 const API_BULLET: &'static str = "http://api.bilibili.com/x/v2/dm/web/seg.so";
+const API_USERINFO: &'static str = "https://api.bilibili.com/x/web-interface/nav";
 const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
 
@@ -26,7 +28,6 @@ pub enum DownloadError<'a> {
 #[derive(Debug, Clone)]
 pub struct Downloader {
     client: reqwest::Client,
-    cookies: Vec<(String, String)>,
     task_num: u8,
 }
 
@@ -116,14 +117,41 @@ async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Va
     Ok(builder.send().await?.json::<serde_json::Value>().await?)
 }
 
+fn build_cookie_jar() -> Option<Arc<Jar>> {
+    if let Ok(cookie_str) = std::fs::read_to_string("cookie.txt") {
+        let url = "https://bilibli.com".parse::<reqwest::Url>().unwrap();
+        let jar = Jar::default();
+        jar.add_cookie_str(cookie_str.as_str(), &url);
+        return Some(Arc::new(jar));
+    }
+    None
+}
+
 impl Downloader {
     pub fn new() -> Result<Self> {
-        let client = reqwest::Client::builder().user_agent(UA).build()?;
-        Ok(Downloader {
+        let mut has_cookies = false;
+        let client = if let Some(cookies) = build_cookie_jar() {
+            has_cookies = true;
+            reqwest::Client::builder()
+                .user_agent(UA)
+                .cookie_provider(Arc::clone(&cookies))
+                .cookie_store(true)
+                .build()?
+        } else {
+            reqwest::Client::builder().user_agent(UA).build()?
+        };
+        let downloader = Downloader {
             client,
-            cookies: vec![],
             task_num: 8,
-        })
+        };
+        if has_cookies {
+            downloader.check_login()?
+        }
+        Ok(downloader)
+    }
+
+    fn check_login(&self) -> Result<()> {
+        Ok(())
     }
 
     pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
