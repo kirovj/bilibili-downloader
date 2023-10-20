@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::future::join_all;
 use prost::Message;
-use reqwest::header::{self, CONTENT_TYPE};
+use reqwest::header::{self, CONTENT_RANGE, CONTENT_TYPE};
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
@@ -36,6 +36,18 @@ fn extract_bv(bv_or_url: String) -> String {
     } else {
         bv_or_url
     }
+}
+
+fn extract_content_range(headers: &HeaderMap) -> Result<u64> {
+    if let Some(range) = headers.get(CONTENT_RANGE) {
+        let _range = String::from(range.to_str()?);
+        let mut splits = _range.split("/");
+        let _ = splits.next();
+        if let Some(len) = splits.next() {
+            return Ok(len.parse::<u64>()?);
+        }
+    }
+    Ok(0 as u64)
 }
 
 fn extract_content_len(headers: &HeaderMap) -> Result<u64> {
@@ -197,7 +209,13 @@ impl Downloader {
                 .unwrap_or("")
                 .to_string();
             format = extract_format(video_data["mimeType"].as_str().unwrap_or(""));
-            content_len = 31187046;
+            let response = self
+                .client
+                .get(&video_url)
+                .header("range", "bytes=0-1024")
+                .send()
+                .await?;
+            content_len = extract_content_range(response.headers()).unwrap_or(0);
         } else {
             video_url = response["durl"]
                 .as_array()
@@ -210,7 +228,7 @@ impl Downloader {
             format = extract_format_from_header(response.headers());
             content_len = extract_content_len(response.headers()).unwrap_or(0);
         }
-        println!("format: {}, content length: {}", format, content_len);
+        println!("video format: {}, content length: {}", format, content_len);
 
         Ok(Video {
             bv,
