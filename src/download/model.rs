@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 pub struct Video {
     pub bv: String,
     pub cid: u64,
-    pub url: String,
+    pub video_url: String,
+    pub audio_url: String,
     pub title: String,
     /// 格式
     pub format: String,
     /// 时长
     pub duration: u64,
-    pub content_lenth: u64,
+    pub content_len: u64,
 }
 
 /// 弹幕 pb 定义

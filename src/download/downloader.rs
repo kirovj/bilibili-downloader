@@ -3,8 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use futures::future::join_all;
 use prost::Message;
-use reqwest::cookie::Jar;
-use reqwest::header::CONTENT_TYPE;
+use reqwest::header::{self, CONTENT_TYPE};
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 
@@ -39,7 +38,7 @@ fn extract_bv(bv_or_url: String) -> String {
     }
 }
 
-fn extract_content_lenth(headers: &HeaderMap) -> Result<u64> {
+fn extract_content_len(headers: &HeaderMap) -> Result<u64> {
     let check_accept = match headers.get(ACCEPT_RANGES) {
         Some(accept_ranges) => accept_ranges.to_str()?.contains("bytes"),
         None => false,
@@ -56,31 +55,35 @@ fn extract_content_lenth(headers: &HeaderMap) -> Result<u64> {
     Ok(content_length as u64)
 }
 
-fn extract_format(headers: &HeaderMap) -> String {
-    return match headers.get(CONTENT_TYPE) {
-        Some(content_type) => match content_type.to_str().unwrap_or("video/mp4") {
-            "video/mp4" => "mp4",
-            "video/x-flv" => "flv",
-            "application/x-mpegURL" => "m3u8",
-            "video/MP2T" => "ts",
-            "video/3gpp" => "3gpp",
-            "video/quicktime" => "mov",
-            "video/x-msvideo" => "avi",
-            "video/x-ms-wmv" => "wmv",
-            "audio/x-wav" => "wav",
-            "audio/x-mp3" => "mp3",
-            "audio/mp4" => "mp4",
-            "application/ogg" => "ogg",
-            "image/jpeg" => "jpeg",
-            "image/png" => "png",
-            "image/tiff" => "tiff",
-            "image/gif" => "gif",
-            "image/svg+xml" => "svg",
-            _ => "mp4",
-        },
-        None => "mp4",
+fn extract_format(content_type: &str) -> String {
+    match content_type {
+        "video/mp4" => "mp4",
+        "video/x-flv" => "flv",
+        "application/x-mpegURL" => "m3u8",
+        "video/MP2T" => "ts",
+        "video/3gpp" => "3gpp",
+        "video/quicktime" => "mov",
+        "video/x-msvideo" => "avi",
+        "video/x-ms-wmv" => "wmv",
+        "audio/x-wav" => "wav",
+        "audio/x-mp3" => "mp3",
+        "audio/mp4" => "mp4",
+        "application/ogg" => "ogg",
+        "image/jpeg" => "jpeg",
+        "image/png" => "png",
+        "image/tiff" => "tiff",
+        "image/gif" => "gif",
+        "image/svg+xml" => "svg",
+        _ => "mp4",
     }
-    .to_string();
+    .to_string()
+}
+
+fn extract_format_from_header(headers: &HeaderMap) -> String {
+    match headers.get(CONTENT_TYPE) {
+        Some(content_type) => extract_format(content_type.to_str().unwrap_or("")),
+        None => "mp4".to_string(),
+    }
 }
 
 #[cfg(target_family = "windows")]
@@ -117,46 +120,47 @@ async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Va
     Ok(builder.send().await?.json::<serde_json::Value>().await?)
 }
 
-fn build_cookie_jar() -> Option<Arc<Jar>> {
-    if let Ok(cookie_str) = std::fs::read_to_string("cookie.txt") {
-        let url = "https://bilibli.com".parse::<reqwest::Url>().unwrap();
-        let jar = Jar::default();
-        jar.add_cookie_str(cookie_str.as_str(), &url);
-        return Some(Arc::new(jar));
-    }
-    None
-}
-
 impl Downloader {
-    pub fn new() -> Result<Self> {
-        let mut has_cookies = false;
-        let client = if let Some(cookies) = build_cookie_jar() {
-            has_cookies = true;
-            reqwest::Client::builder()
-                .user_agent(UA)
-                .cookie_provider(Arc::clone(&cookies))
-                .cookie_store(true)
-                .build()?
-        } else {
-            reqwest::Client::builder().user_agent(UA).build()?
-        };
+    pub fn new(task_num: u8) -> Result<Self> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            "referer",
+            header::HeaderValue::from_static("https://www.bilibili.com/"),
+        );
+        if let Ok(c) = std::fs::read_to_string("cookie") {
+            let val = header::HeaderValue::from_str(c.as_str())?;
+            headers.insert("cookie", val);
+        }
+        let client = reqwest::Client::builder()
+            .user_agent(UA)
+            .default_headers(headers)
+            .build()?;
         let downloader = Downloader {
             client,
-            task_num: 8,
+            task_num: task_num,
         };
-        if has_cookies {
-            downloader.check_login()?
-        }
         Ok(downloader)
     }
 
-    fn check_login(&self) -> Result<()> {
+    pub async fn check_login(&self) -> Result<()> {
+        let r = &request_json(self.client.get(API_USERINFO)).await?;
+        match r["data"]["isLogin"].as_bool() {
+            Some(true) => {
+                println!("Login success.");
+            }
+            _ => {
+                println!("Login fail.");
+            }
+        }
         Ok(())
     }
 
     pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
+        // check login
+        self.check_login().await?;
         let bv = extract_bv(bv_or_url);
         let url = format!("{}{}", API_INFO, bv);
+        println!("video info: {}", url);
         let response = &request_json(self.client.get(url)).await?["data"];
         let title = response["title"]
             .as_str()
@@ -168,55 +172,76 @@ impl Downloader {
         let duration = response["duration"]
             .as_u64()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("duration"))?;
-        let response = &request_json(
-            self.client
-                .get(API_PLAY)
-                .query(&[("bvid", bv.as_str()), ("cid", cid.to_string().as_str())]),
-        )
+        println!("video play info: {}?bvid={}&cid={}", API_PLAY, bv, cid);
+        let response = &request_json(self.client.get(API_PLAY).query(&[
+            ("bvid", bv.as_str()),
+            ("cid", cid.to_string().as_str()),
+            // add this to fetch 1080P or better
+            ("fnval", "2000"),
+        ]))
         .await?["data"];
-        let url = response["durl"]
-            .as_array()
-            .ok_or_else(|| DownloadError::GetVideoInfoFail("durl"))?[0]["url"]
-            .as_str()
-            .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?
-            .to_string();
-        let response = self
-            .client
-            .head(&url)
-            .header("referer", "https://www.bilibili.com/")
-            .send()
-            .await?;
-        let format = extract_format(response.headers());
-        let content_lenth = extract_content_lenth(response.headers()).unwrap_or(0);
+        let video_url;
+        let audio_url;
+        let format;
+        let content_len;
+
+        if let Some(data) = response["dash"].as_object() {
+            let video_data = &data
+                .get("video")
+                .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?[0];
+            video_url = video_data["baseUrl"].as_str().unwrap_or("").to_string();
+            audio_url = data
+                .get("audio")
+                .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?[0]["baseUrl"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            format = extract_format(video_data["mimeType"].as_str().unwrap_or(""));
+            content_len = 31187046;
+        } else {
+            video_url = response["durl"]
+                .as_array()
+                .ok_or_else(|| DownloadError::GetVideoInfoFail("durl"))?[0]["url"]
+                .as_str()
+                .ok_or_else(|| DownloadError::GetVideoInfoFail("url"))?
+                .to_string();
+            audio_url = String::new();
+            let response = self.client.head(&video_url).send().await?;
+            format = extract_format_from_header(response.headers());
+            content_len = extract_content_len(response.headers()).unwrap_or(0);
+        }
+        println!("format: {}, content length: {}", format, content_len);
+
         Ok(Video {
             bv,
             cid,
-            url,
+            video_url,
+            audio_url,
             title,
             format,
             duration,
-            content_lenth,
+            content_len,
         })
     }
 
+    /// Download video chunks
     pub async fn download_chunks(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
-        let chunk_size = video.content_lenth / self.task_num as u64;
+        let chunk_size = video.content_len / self.task_num as u64;
+        println!("downloading video, chunk size {}...", chunk_size);
         let mut range_list = vec![];
         let mut start = 0;
         let mut end = 0;
 
-        while end < video.content_lenth {
+        while end < video.content_len {
             end += chunk_size;
-            if end > video.content_lenth {
-                end = video.content_lenth;
+            if end > video.content_len {
+                end = video.content_len;
             }
             range_list.push((start, end));
             start = end + 1;
         }
-
         let mut handler_list = vec![];
         for (index, range) in range_list.into_iter().enumerate() {
-            println!("download chunk {} from {} to {}", index, range.0, range.1);
             let downloader = self.clone();
             let video = video.clone();
             let handler =
@@ -229,16 +254,17 @@ impl Downloader {
         Ok(())
     }
 
+    /// Download single video chunk
     pub async fn download_chunk(
         self: Arc<Self>,
         video: Arc<Video>,
         range: (u64, u64),
         index: u8,
     ) -> Result<()> {
+        println!("download chunk {} from {} to {}", index, range.0, range.1);
         let mut response = self
             .client
-            .get(video.url.as_str())
-            .header("referer", "https://www.bilibili.com/")
+            .get(video.video_url.as_str())
             .header("range", format!("bytes={}-{}", range.0, range.1))
             .send()
             .await?;
@@ -253,10 +279,27 @@ impl Downloader {
         Ok(())
     }
 
+    /// Download audio if exists
+    pub async fn download_audio(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
+        if video.audio_url.len() == 0 {
+            return Ok(());
+        }
+        println!("downloading audio...");
+        let response = self.client.get(video.audio_url.as_str()).send().await?;
+        if let Ok(bytes) = response.bytes().await {
+            let filepath = format!("{}/audio.mp3", video.bv);
+            write_bytes_to_file(filepath.as_str(), &bytes, 0).await?;
+            println!("downloading audio success at {}", filepath);
+        }
+        Ok(())
+    }
+
+    /// Download danmaku
     pub async fn download_danmaku(
         self: Arc<Self>,
         video: Arc<Video>,
     ) -> Result<Vec<DanmakuSegment>> {
+        println!("downloading danmaku...");
         let mut fut = vec![];
         let bags = (video.duration + 359) / 360;
         for i in 0..bags {

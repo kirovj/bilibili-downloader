@@ -1,38 +1,28 @@
-use bilibili_downloader::Downloader;
-use bilibili_downloader::Video;
+use bilibili_downloader::*;
 use std::sync::Arc;
 use tokio::{
     fs,
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
 };
 
 const TASK_NUM: u8 = 8;
 
-async fn create_file(filepath: String) -> io::Result<fs::File> {
-    fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(filepath)
-        .await
-}
-
 async fn merge_chunk_files(video: Arc<Video>) -> () {
-    let mut file = match create_file(format!("{}/{}.{}", video.bv, video.title, video.format)).await
-    {
-        Ok(f) => f,
-        Err(_) => {
-            println!("cannot create file named by title, use bv instead");
-            create_file(format!("{}/{}.{}", video.bv, video.bv, video.format))
-                .await
-                .map_or_else(|_| panic!("create result file fail"), |f| f)
-        }
-    };
+    let title = video.title.as_str();
+    let bv = video.bv.as_str();
+    let format = video.format.as_str();
+    let video_path = format!("{}/video.{}", bv, format);
+    let video_path = video_path.as_str();
+    let mut file = create_file(video_path)
+        .await
+        .map_or_else(|_| panic!("create result file fail"), |f| f);
 
     for index in 0..TASK_NUM + 1 {
-        let chunk_path = format!("{}/{}_{}", video.bv, video.bv, index);
+        let chunk_path = format!("{}/{}_{}", bv, bv, index);
+        let chunk_path = chunk_path.as_str();
         match fs::File::open(chunk_path).await {
             Ok(mut chunk_file) => {
-                println!("merge file {}", index);
+                println!("merge chunk file {}", index);
                 let size = chunk_file.metadata().await.map_or_else(
                     |_| panic!("read chunk file size fail"),
                     |metadata| metadata.len(),
@@ -48,22 +38,43 @@ async fn merge_chunk_files(video: Arc<Video>) -> () {
             }
             Err(_) => continue,
         }
+        fs::remove_file(chunk_path).await.unwrap_or_else(|why| {
+            println!("remove chunk file fail: {:?}", why.kind());
+        });
     }
-    println!("merge file finished");
+    println!("merge chunk files finished");
+    let _ = mix_video_audio(
+        format!("{}/video.{}", bv, format).as_str(),
+        format!("{}/audio.mp3", bv).as_str(),
+        format!("{}/{}.{}", bv, title, format).as_str(),
+    )
+    .await
+    .map_err(|why| {
+        println!("remove chunk file fail: {:?}", why.kind());
+    });
 }
 
 #[tokio::main]
 async fn main() -> () {
-    let bv = "BV1Q14y1L76r";
-    let downloader = Downloader::new().unwrap();
+    let bv = "";
+    let downloader = Downloader::new(TASK_NUM).unwrap();
     if let Ok(video) = downloader.build_video(bv.to_string()).await {
         let video = Arc::new(video);
         match fs::create_dir(bv).await {
             Ok(_) => {
                 println!("download {} start, title: `{}`", video.bv, video.title);
                 let downloader = Arc::new(downloader);
-                if video.content_lenth > 0 {
-                    downloader.download_chunks(video.clone()).await.unwrap();
+                if video.content_len > 0 {
+                    downloader
+                        .clone()
+                        .download_chunks(video.clone())
+                        .await
+                        .unwrap();
+                    downloader
+                        .clone()
+                        .download_audio(video.clone())
+                        .await
+                        .unwrap();
                     let _ = merge_chunk_files(video.clone()).await;
                 } else {
                     todo!()
@@ -111,8 +122,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_bullet() -> Result<()> {
-        let bv = "bvid";
-        let downloader = Downloader::new().unwrap();
+        let bv = "";
+        let downloader = Downloader::new(TASK_NUM).unwrap();
         let video = downloader.build_video(bv.to_string()).await.unwrap();
         let downloader = Arc::new(downloader);
         let danmuku_list = downloader.download_danmaku(Arc::new(video)).await?;
