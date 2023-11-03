@@ -6,6 +6,10 @@ use prost::Message;
 use reqwest::header::{self, CONTENT_RANGE, CONTENT_TYPE};
 use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
+use tokio::fs;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use crate::{create_file, mix_video_audio};
 
 use super::{DanmakuSegment, Video};
 
@@ -13,11 +17,12 @@ const API_INFO: &'static str = "https://api.bilibili.com/x/web-interface/view?bv
 const API_PLAY: &'static str = "https://api.bilibili.com/x/player/playurl";
 const API_BULLET: &'static str = "http://api.bilibili.com/x/v2/dm/web/seg.so";
 const API_USERINFO: &'static str = "https://api.bilibili.com/x/web-interface/nav";
-const URL: &'static str = "https://www.bilibili.com/video/";
 const UA: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36";
 
 #[derive(Error, Debug)]
 pub enum DownloadError<'a> {
+    #[error("登陆失败")]
+    LoginFail,
     #[error("获取视频信息 {0} 失败")]
     GetVideoInfoFail(&'a str),
     #[error("获取弹幕包失败 cid: {0}, segment: {1}")]
@@ -28,14 +33,7 @@ pub enum DownloadError<'a> {
 pub struct Downloader {
     client: reqwest::Client,
     task_num: u8,
-}
-
-fn extract_bv(bv_or_url: String) -> String {
-    if bv_or_url.contains(URL) {
-        todo!()
-    } else {
-        bv_or_url
-    }
+    pub dir: String,
 }
 
 fn extract_content_range(headers: &HeaderMap) -> Result<u64> {
@@ -147,30 +145,33 @@ impl Downloader {
             .user_agent(UA)
             .default_headers(headers)
             .build()?;
+        let dir = "".to_string();
         let downloader = Downloader {
             client,
-            task_num: task_num,
+            task_num,
+            dir,
         };
         Ok(downloader)
     }
 
+    /// Validate cookie
     pub async fn check_login(&self) -> Result<()> {
         let r = &request_json(self.client.get(API_USERINFO)).await?;
         match r["data"]["isLogin"].as_bool() {
             Some(true) => {
                 println!("Login success.");
+                Ok(())
             }
             _ => {
                 println!("Login fail.");
+                Err(DownloadError::LoginFail.into())
             }
         }
-        Ok(())
     }
 
-    pub async fn build_video(&self, bv_or_url: String) -> Result<Video> {
-        // check login
+    /// Buile video
+    pub async fn build_video(&self, bv: String) -> Result<Video> {
         self.check_login().await?;
-        let bv = extract_bv(bv_or_url);
         let url = format!("{}{}", API_INFO, bv);
         println!("video info: {}", url);
         let response = &request_json(self.client.get(url)).await?["data"];
@@ -229,7 +230,6 @@ impl Downloader {
             content_len = extract_content_len(response.headers()).unwrap_or(0);
         }
         println!("video format: {}, content length: {}", format, content_len);
-
         Ok(Video {
             bv,
             cid,
@@ -289,7 +289,7 @@ impl Downloader {
         let mut offset = 0;
         while let Some(bytes) = response.chunk().await? {
             let bv = video.bv.as_str();
-            let filepath = format!("{}/{}_{}", bv, bv, index);
+            let filepath = format!("{}/{}_{}", self.dir, bv, index);
             let len = bytes.len() as u64;
             write_bytes_to_file(filepath.as_str(), &bytes, offset).await?;
             offset += len;
@@ -305,19 +305,45 @@ impl Downloader {
         println!("downloading audio...");
         let response = self.client.get(video.audio_url.as_str()).send().await?;
         if let Ok(bytes) = response.bytes().await {
-            let filepath = format!("{}/audio.mp3", video.bv);
+            let filepath = format!("{}/audio.mp3", self.dir);
             write_bytes_to_file(filepath.as_str(), &bytes, 0).await?;
             println!("downloading audio success at {}", filepath);
         }
         Ok(())
     }
 
+    /// Merge chunk files and mix video and audio
+    pub async fn build_final_video(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
+        let format = video.format.as_str();
+        let video_path = format!("{}/video.{}", self.dir, format);
+        let mut file = create_file(video_path.as_str()).await?;
+        let indexes = self.task_num + 1;
+
+        for index in 0..indexes {
+            let chunk_path = format!("{}/{}_{}", self.dir, video.bv.as_str(), index);
+            let mut chunk_file = fs::File::open(chunk_path.as_str()).await?;
+            println!("merge chunk file {}", index);
+            let size = chunk_file.metadata().await?.len();
+            let mut buf = vec![0; size as usize];
+            chunk_file.read_exact(&mut buf).await?;
+            file.write_all(&buf).await?;
+            fs::remove_file(chunk_path).await?;
+        }
+        println!("merge chunk files finished");
+        let _ = mix_video_audio(
+            format!("{}/video.{}", self.dir, format).as_str(),
+            format!("{}/audio.mp3", self.dir).as_str(),
+            format!("{}/{}.{}", self.dir, video.title.as_str(), format).as_str(),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Download danmaku
-    pub async fn download_danmaku(
-        self: Arc<Self>,
-        video: Arc<Video>,
-    ) -> Result<Vec<DanmakuSegment>> {
+    pub async fn download_danmaku(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
         println!("downloading danmaku...");
+        let mut file =
+            create_file(format!("{}/{}_danmuku.txt", self.dir, video.bv).as_str()).await?;
         let mut fut = vec![];
         let bags = (video.duration + 359) / 360;
         for i in 0..bags {
@@ -325,9 +351,18 @@ impl Downloader {
             let video = video.clone();
             fut.push(downloader.download_danmaku_segment(video, i + 1));
         }
-        futures::future::try_join_all(fut).await
+        let danmuku_list = futures::future::try_join_all(fut).await?;
+        for danmuku_seg in danmuku_list {
+            for danmuku in danmuku_seg.elems {
+                if let Ok(json) = serde_json::to_string(&danmuku) {
+                    file.write_all(format!("{}\n", json).as_bytes()).await?;
+                }
+            }
+        }
+        Ok(())
     }
 
+    /// Download danmaku segment
     pub async fn download_danmaku_segment(
         self: Arc<Self>,
         video: Arc<Video>,
@@ -349,18 +384,13 @@ impl Downloader {
             Err(_) => Err(DownloadError::GetDanmakuSegmentFail(video.cid, seg_index).into()),
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_extract_bv() {
-        assert_eq!("xxx", extract_bv("xxx".to_string()));
-        assert_eq!(
-            "xxx",
-            extract_bv("https://www.bilibili.com/video/xxx".to_string())
-        );
+    /// Start download mission
+    pub async fn start(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
+        self.clone().download_chunks(video.clone()).await?;
+        self.clone().download_audio(video.clone()).await?;
+        self.clone().build_final_video(video.clone()).await?;
+        self.clone().download_danmaku(video).await?;
+        Ok(())
     }
 }
