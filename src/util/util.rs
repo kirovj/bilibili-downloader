@@ -6,7 +6,7 @@ use tokio::{
     io::{self},
 };
 
-/// use ffmpeg to mix video and audio
+/// Use ffmpeg to mix video and audio
 pub async fn mix_video_audio(
     video_path: &str,
     audio_path: &str,
@@ -28,11 +28,43 @@ pub async fn mix_video_audio(
         .await
 }
 
-/// create file with filepath
+/// Create file with filepath
 pub async fn create_file(filepath: &str) -> io::Result<fs::File> {
     fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(filepath)
         .await
+}
+
+/// Write bytes to file in windows
+#[cfg(target_family = "windows")]
+pub async fn write_bytes_to_file(
+    filepath: &str,
+    bytes: &[u8],
+    offset: u64,
+) -> Result<usize, std::io::Error> {
+    use std::fs;
+    use std::os::windows::fs::FileExt;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(filepath)?;
+    file.seek_write(&bytes, offset)
+}
+
+/// Write bytes to file in unix
+#[cfg(target_family = "unix")]
+pub async fn write_bytes_to_file(
+    filepath: &str,
+    bytes: &[u8],
+    offset: u64,
+) -> Result<usize, std::io::Error> {
+    use std::fs;
+    use std::os::unix::fs::FileExt;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(filepath)?;
+    file.write_at(bytes, offset)
 }

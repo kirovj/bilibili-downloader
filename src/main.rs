@@ -2,7 +2,7 @@ use bilibili_downloader::*;
 use std::sync::Arc;
 use tokio::fs;
 
-const TASK_NUM: u8 = 8;
+const TASK_NUM: u8 = 7;
 
 #[tokio::main]
 async fn main() -> () {

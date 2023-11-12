@@ -9,7 +9,7 @@ use thiserror::Error;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::{create_file, mix_video_audio};
+use crate::util;
 
 use super::{DanmakuSegment, Video};
 
@@ -94,36 +94,6 @@ fn extract_format_from_header(headers: &HeaderMap) -> String {
         Some(content_type) => extract_format(content_type.to_str().unwrap_or("")),
         None => "mp4".to_string(),
     }
-}
-
-#[cfg(target_family = "windows")]
-async fn write_bytes_to_file(
-    filepath: &str,
-    bytes: &[u8],
-    offset: u64,
-) -> Result<usize, std::io::Error> {
-    use std::fs;
-    use std::os::windows::fs::FileExt;
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(filepath)?;
-    file.seek_write(&bytes, offset)
-}
-
-#[cfg(target_family = "unix")]
-async fn write_bytes_to_file(
-    filepath: &str,
-    bytes: &[u8],
-    offset: u64,
-) -> Result<usize, std::io::Error> {
-    use std::fs;
-    use std::os::unix::fs::FileExt;
-    let file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(filepath)?;
-    file.write_at(bytes, offset)
 }
 
 async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Value> {
@@ -244,7 +214,7 @@ impl Downloader {
 
     /// Download video chunks
     pub async fn download_chunks(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
-        let chunk_size = video.content_len / self.task_num as u64;
+        let chunk_size = (video.content_len as f64 / self.task_num as f64).floor() as u64;
         println!("downloading video, chunk size {}...", chunk_size);
         let mut range_list = vec![];
         let mut start = 0;
@@ -288,10 +258,9 @@ impl Downloader {
             .await?;
         let mut offset = 0;
         while let Some(bytes) = response.chunk().await? {
-            let bv = video.bv.as_str();
-            let filepath = format!("{}/{}_{}", self.dir, bv, index);
+            let filepath = format!("{}/chunk_{}", self.dir, index);
             let len = bytes.len() as u64;
-            write_bytes_to_file(filepath.as_str(), &bytes, offset).await?;
+            util::write_bytes_to_file(filepath.as_str(), &bytes, offset).await?;
             offset += len;
         }
         Ok(())
@@ -306,7 +275,7 @@ impl Downloader {
         let response = self.client.get(video.audio_url.as_str()).send().await?;
         if let Ok(bytes) = response.bytes().await {
             let filepath = format!("{}/audio.mp3", self.dir);
-            write_bytes_to_file(filepath.as_str(), &bytes, 0).await?;
+            util::write_bytes_to_file(filepath.as_str(), &bytes, 0).await?;
             println!("downloading audio success at {}", filepath);
         }
         Ok(())
@@ -316,34 +285,39 @@ impl Downloader {
     pub async fn build_final_video(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
         let format = video.format.as_str();
         let video_path = format!("{}/video.{}", self.dir, format);
-        let mut file = create_file(video_path.as_str()).await?;
-        let indexes = self.task_num + 1;
+        let mut file = util::create_file(video_path.as_str()).await?;
 
-        for index in 0..indexes {
-            let chunk_path = format!("{}/{}_{}", self.dir, video.bv.as_str(), index);
-            let mut chunk_file = fs::File::open(chunk_path.as_str()).await?;
+        for index in 0..self.task_num + 1 {
             println!("merge chunk file {}", index);
-            let size = chunk_file.metadata().await?.len();
-            let mut buf = vec![0; size as usize];
-            chunk_file.read_exact(&mut buf).await?;
-            file.write_all(&buf).await?;
-            fs::remove_file(chunk_path).await?;
+            let chunk_path = format!("{}/chunk_{}", self.dir, index);
+            if let Ok(mut chunk_file) = fs::File::open(chunk_path.as_str()).await {
+                let size = chunk_file.metadata().await?.len();
+                let mut buf = vec![0; size as usize];
+                chunk_file.read_exact(&mut buf).await?;
+                file.write_all(&buf).await?;
+                fs::remove_file(chunk_path).await?;
+            }
         }
         println!("merge chunk files finished");
-        let _ = mix_video_audio(
-            format!("{}/video.{}", self.dir, format).as_str(),
-            format!("{}/audio.mp3", self.dir).as_str(),
-            format!("{}/{}.{}", self.dir, video.title.as_str(), format).as_str(),
+
+        let video_path = format!("{}/video.{}", self.dir, format);
+        let audio_path = format!("{}/audio.mp3", self.dir);
+        let output_path = format!("{}/{}.{}", self.dir, video.title.as_str(), format);
+        let _ = util::mix_video_audio(
+            video_path.as_str(),
+            audio_path.as_str(),
+            output_path.as_str(),
         )
         .await?;
+        fs::remove_file(video_path).await?;
+        fs::remove_file(audio_path).await?;
         Ok(())
     }
 
     /// Download danmaku
     pub async fn download_danmaku(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
         println!("downloading danmaku...");
-        let mut file =
-            create_file(format!("{}/{}_danmuku.txt", self.dir, video.bv).as_str()).await?;
+        let mut file = util::create_file(format!("{}/danmuku.txt", self.dir).as_str()).await?;
         let mut fut = vec![];
         let bags = (video.duration + 359) / 360;
         for i in 0..bags {
