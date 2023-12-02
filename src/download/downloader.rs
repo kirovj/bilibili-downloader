@@ -108,7 +108,7 @@ impl Downloader {
             "referer",
             header::HeaderValue::from_static("https://www.bilibili.com/"),
         );
-        if let Ok(c) = std::fs::read_to_string("cookie") {
+        if let Ok(c) = std::fs::read_to_string("cookie.txt") {
             let val = header::HeaderValue::from_str(c.as_str())?;
             headers.insert("cookie", val);
         }
