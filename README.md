@@ -8,7 +8,9 @@ bilibili downloader and Danmaku restorer. Inspired by [danmu2ass](https://github
 
 ## 使用方法
 
-先登录B站复制自己的 cookie 到 cookie.txt，不会请百度，这里最好用浏览器隐私模式登录后的 cookie，过期时间长。
+确认自己电脑上有ffmpeg，且路径在环境变量中。如果没有，下载 ffmpeg.exe 并和本程序放到同一个文件夹。
+
+先登录B站复制自己的 cookie 到 cookie.txt，并和本程序放到同一个文件夹。不会请百度，这里最好用浏览器隐私模式登录后的 cookie，过期时间长。
 
 ```
 bilibili-downloader.exe <bv> -t <tasknum>
