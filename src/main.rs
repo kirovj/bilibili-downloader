@@ -2,12 +2,11 @@ use bilibili_downloader::*;
 use std::sync::Arc;
 use tokio::fs;
 
-const TASK_NUM: u8 = 7;
+/// default task num
+const TASK_NUM: &'static str = "7";
 
-#[tokio::main]
-async fn main() -> () {
-    let bv = "";
-    let mut downloader = Downloader::new(TASK_NUM).unwrap();
+async fn run(bv: &str, task_num: u8) {
+    let mut downloader = Downloader::new(task_num).unwrap();
     if let Ok(video) = downloader.build_video(bv.to_string()).await {
         let video = Arc::new(video);
         let title = video.title.as_str();
@@ -24,35 +23,55 @@ async fn main() -> () {
         if video.content_len > 0 {
             downloader.start(video.clone()).await.unwrap();
         } else {
-            todo!()
+            println!("download {} fail, video size is 0", video.title);
         }
     } else {
-        todo!()
+        println!("build video fail");
     }
+}
 
-    // let matches = clap::App::new("Bilibili Video Downloader")
-    //     .version(clap::crate_version!())
-    //     .author("Kirovj")
-    //     .about("Don't use it illegally, I don't take any responsibility.")
-    //     .arg(
-    //         clap::Arg::with_name("target")
-    //             .short("t")
-    //             .long("target")
-    //             .help("Video bid")
-    //             .required(true)
-    //             .takes_value(true),
-    //     )
-    //     .arg(
-    //         clap::Arg::with_name("bullet")
-    //             .short("b")
-    //             .long("bullet")
-    //             .help("Need bullet comment default false"),
-    //     )
-    //     .get_matches();
+#[tokio::main]
+async fn main() {
+    let matches = clap::App::new("Bilibili Video Downloader")
+        .version(clap::crate_version!())
+        .author("Kirovj")
+        .about("Don't use it illegally, I don't take any responsibility.")
+        .arg(
+            clap::Arg::with_name("bv")
+                .help("Bilibili video bv id")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            clap::Arg::with_name("tasknum")
+                .short("t")
+                .long("tasknum")
+                .help("Async task num for downloader")
+                .required(true)
+                .takes_value(true)
+                .default_value(TASK_NUM),
+        )
+        .get_matches();
 
-    // let bullet = matches.is_present("bullet");
+    let task_num = match matches.value_of("tasknum").unwrap().parse::<u8>() {
+        Ok(num) => {
+            if num > 10 {
+                println!("task num over 10, please use 1 ~ 10 instead");
+                return;
+            }
+            num
+        }
+        _ => {
+            println!("{:?}", matches.value_of("bv").unwrap());
+            return;
+        }
+    };
 
-    // if let Some(bid) = matches.value_of("target") {
-    //     download(bid, bullet);
-    // }
+    match matches.value_of("bv") {
+        Some(bv) => run(bv, task_num).await,
+        _ => {
+            println!("bv id is empty!");
+            return;
+        }
+    };
 }

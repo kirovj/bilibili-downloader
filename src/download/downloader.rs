@@ -8,6 +8,7 @@ use reqwest::header::{HeaderMap, ACCEPT_RANGES, CONTENT_LENGTH};
 use thiserror::Error;
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::Semaphore;
 
 use crate::util;
 
@@ -129,13 +130,10 @@ impl Downloader {
         let r = &request_json(self.client.get(API_USERINFO)).await?;
         match r["data"]["isLogin"].as_bool() {
             Some(true) => {
-                println!("Login success.");
+                println!("login success");
                 Ok(())
             }
-            _ => {
-                println!("Login fail.");
-                Err(DownloadError::LoginFail.into())
-            }
+            _ => Err(DownloadError::LoginFail.into()),
         }
     }
 
@@ -143,7 +141,7 @@ impl Downloader {
     pub async fn build_video(&self, bv: String) -> Result<Video> {
         self.check_login().await?;
         let url = format!("{}{}", API_INFO, bv);
-        println!("video info: {}", url);
+        // println!("video info: {}", url);
         let response = &request_json(self.client.get(url)).await?["data"];
         let title = response["title"]
             .as_str()
@@ -155,7 +153,7 @@ impl Downloader {
         let duration = response["duration"]
             .as_u64()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("duration"))?;
-        println!("video play info: {}?bvid={}&cid={}", API_PLAY, bv, cid);
+        // println!("video play info: {}?bvid={}&cid={}", API_PLAY, bv, cid);
         let response = &request_json(self.client.get(API_PLAY).query(&[
             ("bvid", bv.as_str()),
             ("cid", cid.to_string().as_str()),
@@ -199,7 +197,11 @@ impl Downloader {
             format = extract_format_from_header(response.headers());
             content_len = extract_content_len(response.headers()).unwrap_or(0);
         }
-        println!("video format: {}, content length: {}", format, content_len);
+        println!(
+            "video format: {}, size: {} MB",
+            format,
+            content_len / (1024 * 1024) as u64
+        );
         Ok(Video {
             bv,
             cid,
@@ -213,33 +215,35 @@ impl Downloader {
     }
 
     /// Download video chunks
-    pub async fn download_chunks(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
-        let chunk_size = (video.content_len as f64 / self.task_num as f64).floor() as u64;
-        println!("downloading video, chunk size {}...", chunk_size);
-        let mut range_list = vec![];
+    pub async fn download_chunks(self: Arc<Self>, video: Arc<Video>) -> Result<u16> {
+        // 10MB for one chunk
+        let chunk_size = 1024 * 1024 * 10;
+        let mut handler_list = vec![];
+        let semaphore = Arc::new(Semaphore::new(self.task_num.into()));
+
         let mut start = 0;
         let mut end = 0;
-
+        let mut index = 0;
         while end < video.content_len {
             end += chunk_size;
             if end > video.content_len {
                 end = video.content_len;
             }
-            range_list.push((start, end));
-            start = end + 1;
-        }
-        let mut handler_list = vec![];
-        for (index, range) in range_list.into_iter().enumerate() {
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
             let downloader = self.clone();
             let video = video.clone();
-            let handler =
-                tokio::spawn(
-                    async move { downloader.download_chunk(video, range, index as u8).await },
-                );
+            let handler = tokio::spawn(async move {
+                let _ = downloader
+                    .download_chunk(video, (start, end), index as u8)
+                    .await;
+                drop(permit);
+            });
             handler_list.push(handler);
+            start = end + 1;
+            index += 1;
         }
         join_all(handler_list).await;
-        Ok(())
+        Ok(index)
     }
 
     /// Download single video chunk
@@ -271,7 +275,6 @@ impl Downloader {
         if video.audio_url.len() == 0 {
             return Ok(());
         }
-        println!("downloading audio...");
         let response = self.client.get(video.audio_url.as_str()).send().await?;
         if let Ok(bytes) = response.bytes().await {
             let filepath = format!("{}/audio.mp3", self.dir);
@@ -282,12 +285,16 @@ impl Downloader {
     }
 
     /// Merge chunk files and mix video and audio
-    pub async fn build_final_video(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
+    pub async fn build_final_video(
+        self: Arc<Self>,
+        video: Arc<Video>,
+        chunk_size: u16,
+    ) -> Result<()> {
         let format = video.format.as_str();
         let video_path = format!("{}/video.{}", self.dir, format);
         let mut file = util::create_file(video_path.as_str()).await?;
 
-        for index in 0..self.task_num + 1 {
+        for index in 0..chunk_size {
             println!("merge chunk file {}", index);
             let chunk_path = format!("{}/chunk_{}", self.dir, index);
             if let Ok(mut chunk_file) = fs::File::open(chunk_path.as_str()).await {
@@ -361,9 +368,11 @@ impl Downloader {
 
     /// Start download mission
     pub async fn start(self: Arc<Self>, video: Arc<Video>) -> Result<()> {
-        self.clone().download_chunks(video.clone()).await?;
+        let chunk_size = self.clone().download_chunks(video.clone()).await?;
         self.clone().download_audio(video.clone()).await?;
-        self.clone().build_final_video(video.clone()).await?;
+        self.clone()
+            .build_final_video(video.clone(), chunk_size)
+            .await?;
         self.clone().download_danmaku(video).await?;
         Ok(())
     }
