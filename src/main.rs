@@ -10,14 +10,21 @@ async fn run(bv: &str, task_num: u8) {
     if let Ok(video) = downloader.build_video(bv.to_string()).await {
         let video = Arc::new(video);
         let title = video.title.as_str();
-        downloader.dir = title.to_string();
+        let dir = &format!("{}_{}", title.to_string(), bv);
 
-        if let Err(_) = fs::create_dir(title).await {
-            downloader.dir = bv.to_string();
-            if let Err(e) = fs::create_dir(bv).await {
-                panic!("create video dir fail: {:?}", e);
+        match fs::create_dir(dir.as_str()).await {
+            Ok(_) => {
+                downloader.dir = dir.to_owned();
+            }
+            _ => {
+                downloader.dir = bv.to_string();
+                if let Err(e) = fs::create_dir(bv).await {
+                    println!("create video dir fail: {:?}", e);
+                    return;
+                }
             }
         }
+
         println!("download {} start, title: `{}`", video.bv, video.title);
         let downloader = Arc::new(downloader);
         if video.content_len > 0 {
@@ -74,4 +81,14 @@ async fn main() {
             return;
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_run() {
+        run("", 7).await;
+    }
 }

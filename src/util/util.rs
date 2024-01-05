@@ -28,6 +28,20 @@ pub async fn mix_video_audio(
         .await
 }
 
+/// Replace characters that cannot be used as filename in windows
+pub fn replace_illegal_chars_in_windows(value: &str) -> String {
+    value
+        .replace("\\", "╲")
+        .replace("/", "╱")
+        .replace(":", "：")
+        .replace("*", "✱")
+        .replace("?", "？")
+        .replace("\"", "“")
+        .replace("<", "《")
+        .replace(">", "》")
+        .replace("|", "│")
+}
+
 /// Create file with filepath
 pub async fn create_file(filepath: &str) -> io::Result<fs::File> {
     fs::OpenOptions::new()
@@ -67,4 +81,17 @@ pub async fn write_bytes_to_file(
         .write(true)
         .open(filepath)?;
     file.write_at(bytes, offset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_replace_illegal_chars_in_windows() {
+        assert_eq!(
+            "a╲a╱a：a✱a？a“a《a》a│a".to_string(),
+            replace_illegal_chars_in_windows("a\\a/a:a*a?a\"a<a>a|a")
+        );
+    }
 }
