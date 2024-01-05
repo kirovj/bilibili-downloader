@@ -10,7 +10,7 @@ async fn run(bv: &str, task_num: u8) {
     if let Ok(video) = downloader.build_video(bv.to_string()).await {
         let video = Arc::new(video);
         let title = video.title.as_str();
-        let dir = &format!("{}_{}", bv, title.to_string());
+        let dir = &format!("{}_{}", title.to_string(), bv);
 
         match fs::create_dir(dir.as_str()).await {
             Ok(_) => {
