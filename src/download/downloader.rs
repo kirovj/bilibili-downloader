@@ -10,7 +10,7 @@ use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 
-use crate::util;
+use crate::{replace_illegal_chars_in_windows, util};
 
 use super::{DanmakuSegment, Video};
 
@@ -143,10 +143,8 @@ impl Downloader {
         let url = format!("{}{}", API_INFO, bv);
         // println!("video info: {}", url);
         let response = &request_json(self.client.get(url)).await?["data"];
-        let title = response["title"]
-            .as_str()
-            .unwrap_or_else(|| bv.as_str())
-            .to_string();
+        let title = response["title"].as_str().unwrap_or_else(|| bv.as_str());
+        let title = replace_illegal_chars_in_windows(title);
         let cid = response["cid"]
             .as_u64()
             .ok_or_else(|| DownloadError::GetVideoInfoFail("cid"))?;
