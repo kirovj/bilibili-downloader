@@ -34,7 +34,9 @@ async fn run(bv: &str, task_num: u8) {
                 println!("download {} fail, video size is 0", video.title);
             }
         }
-        Err(e) => { println!("build video fail: {}", e); }
+        Err(e) => {
+            println!("build video fail: {}", e);
+        }
     }
 }
 

@@ -232,7 +232,7 @@ impl Downloader {
             let video = video.clone();
             let handler = tokio::spawn(async move {
                 let _ = downloader
-                    .download_chunk(video, (start, end), index as u8)
+                    .download_chunk(video, (start, end), index as u16)
                     .await;
                 drop(permit);
             });
@@ -249,7 +249,7 @@ impl Downloader {
         self: Arc<Self>,
         video: Arc<Video>,
         range: (u64, u64),
-        index: u8,
+        index: u16,
     ) -> Result<()> {
         println!("download chunk {} from {} to {}", index, range.0, range.1);
         let mut response = self
