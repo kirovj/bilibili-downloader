@@ -46,7 +46,7 @@ fn extract_content_range(headers: &HeaderMap) -> Result<u64> {
             return Ok(len.parse::<u64>()?);
         }
     }
-    Ok(0 as u64)
+    Ok(0u64)
 }
 
 fn extract_content_len(headers: &HeaderMap) -> Result<u64> {
@@ -57,7 +57,7 @@ fn extract_content_len(headers: &HeaderMap) -> Result<u64> {
 
     let content_length = if check_accept {
         match headers.get(CONTENT_LENGTH) {
-            Some(lenth) => lenth.to_str()?.parse::<usize>()?,
+            Some(length) => length.to_str()?.parse::<usize>()?,
             None => 0,
         }
     } else {
@@ -103,7 +103,7 @@ async fn request_json(builder: reqwest::RequestBuilder) -> Result<serde_json::Va
 
 impl Downloader {
     pub fn new(task_num: u8) -> Result<Self> {
-        let mut headers = header::HeaderMap::new();
+        let mut headers = HeaderMap::new();
         headers.insert(
             "referer",
             header::HeaderValue::from_static("https://www.bilibili.com/"),
@@ -137,7 +137,7 @@ impl Downloader {
         }
     }
 
-    /// Buile video
+    /// Build video
     pub async fn build_video(&self, bv: String) -> Result<Video> {
         self.check_login().await?;
         let url = format!("{}{}", API_INFO, bv);
@@ -232,7 +232,7 @@ impl Downloader {
             let video = video.clone();
             let handler = tokio::spawn(async move {
                 let _ = downloader
-                    .download_chunk(video, (start, end), index as u8)
+                    .download_chunk(video, (start, end), index as u16)
                     .await;
                 drop(permit);
             });
@@ -249,7 +249,7 @@ impl Downloader {
         self: Arc<Self>,
         video: Arc<Video>,
         range: (u64, u64),
-        index: u8,
+        index: u16,
     ) -> Result<()> {
         println!("download chunk {} from {} to {}", index, range.0, range.1);
         let mut response = self
@@ -358,7 +358,7 @@ impl Downloader {
             .send()
             .await?;
         let content = response.bytes().await?;
-        match super::DanmakuSegment::decode(content) {
+        match DanmakuSegment::decode(content) {
             Ok(v) => Ok(v),
             Err(_) => Err(DownloadError::GetDanmakuSegmentFail(video.cid, seg_index).into()),
         }

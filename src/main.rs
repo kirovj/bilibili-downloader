@@ -7,33 +7,36 @@ const TASK_NUM: &'static str = "7";
 
 async fn run(bv: &str, task_num: u8) {
     let mut downloader = Downloader::new(task_num).unwrap();
-    if let Ok(video) = downloader.build_video(bv.to_string()).await {
-        let video = Arc::new(video);
-        let title = video.title.as_str();
-        let dir = &format!("{}_{}", title.to_string(), bv);
+    match downloader.build_video(bv.to_string()).await {
+        Ok(video) => {
+            let video = Arc::new(video);
+            let title = video.title.as_str();
+            let dir = &format!("{}_{}", title.to_string(), bv);
 
-        match fs::create_dir(dir.as_str()).await {
-            Ok(_) => {
-                downloader.dir = dir.to_owned();
-            }
-            _ => {
-                downloader.dir = bv.to_string();
-                if let Err(e) = fs::create_dir(bv).await {
-                    println!("create video dir fail: {:?}", e);
-                    return;
+            match fs::create_dir(dir.as_str()).await {
+                Ok(_) => {
+                    downloader.dir = dir.to_owned();
+                }
+                _ => {
+                    downloader.dir = bv.to_string();
+                    if let Err(e) = fs::create_dir(bv).await {
+                        println!("create video dir fail: {:?}", e);
+                        return;
+                    }
                 }
             }
-        }
 
-        println!("download {} start, title: `{}`", video.bv, video.title);
-        let downloader = Arc::new(downloader);
-        if video.content_len > 0 {
-            downloader.start(video.clone()).await.unwrap();
-        } else {
-            println!("download {} fail, video size is 0", video.title);
+            println!("download {} start, title: `{}`", video.bv, video.title);
+            let downloader = Arc::new(downloader);
+            if video.content_len > 0 {
+                downloader.start(video.clone()).await.unwrap();
+            } else {
+                println!("download {} fail, video size is 0", video.title);
+            }
         }
-    } else {
-        println!("build video fail");
+        Err(e) => {
+            println!("build video fail: {}", e);
+        }
     }
 }
 
