@@ -1,0 +1,3 @@
+requests>=2.31
+betterproto>=2.0.0b6
+pytest>=8.0
