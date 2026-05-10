@@ -258,6 +258,30 @@ class TestBuildFinalVideo:
         # 验证输出文件存在
         assert (tmp_path / "test.mp4").exists()
 
+    @patch("subprocess.run")
+    def test_build_final_video_no_audio(self, mock_run, tmp_path):
+        from bilidown.model import Video
+
+        # 创建模拟 chunk 文件（只有视频分块，无音频文件）
+        (tmp_path / "chunk_0").write_bytes(b"video_data")
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="",
+            title="no-audio", format="flv", duration=60, content_len=1000,
+        )
+
+        d = Downloader()
+        d.dir = str(tmp_path)
+        d.build_final_video(video, 1)
+
+        # ffmpeg 不应该被调用（无音频文件）
+        assert not mock_run.called
+        # 临时文件被清理
+        assert not (tmp_path / "chunk_0").exists()
+        # 输出文件存在（直接重命名）
+        assert (tmp_path / "no-audio.flv").exists()
+
 
 class TestDownloadDanmaku:
     @patch.object(requests.Session, "get")

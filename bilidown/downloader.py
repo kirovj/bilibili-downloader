@@ -242,7 +242,7 @@ class Downloader:
         import json
 
         bags = (video.duration + 359) // 360  # 每 6 分钟一个 segment
-        segments = []
+        results = {}
 
         with ThreadPoolExecutor(max_workers=self.task_num) as executor:
             futures = {
@@ -250,10 +250,11 @@ class Downloader:
                 for i in range(bags)
             }
             for f in as_completed(futures):
-                segments.append(f.result())
+                idx = futures[f]
+                results[idx] = f.result()
 
         with open(f"{self.dir}/danmuku.txt", "w", encoding="utf-8") as f:
-            for seg in segments:
-                for elem in seg.elems:
+            for i in range(bags):
+                for elem in results[i].elems:
                     d = elem.to_dict()
                     f.write(json.dumps(d, ensure_ascii=False) + "\n")
