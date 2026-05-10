@@ -139,3 +139,53 @@ class Downloader:
             duration=duration,
             content_len=content_len,
         )
+
+    def download_chunk(self, video, range_tuple: tuple, index: int) -> None:
+        """下载单个视频分块"""
+        from .util import write_bytes_to_file
+
+        start, end = range_tuple
+        r = self.session.get(
+            video.video_url,
+            headers={"Range": f"bytes={start}-{end}"},
+            stream=True,
+        )
+        filepath = f"{self.dir}/chunk_{index}"
+        offset = 0
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                write_bytes_to_file(filepath, chunk, offset)
+                offset += len(chunk)
+
+    def download_chunks(self, video) -> int:
+        """并发分块下载视频"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        chunk_size = 10 * 1024 * 1024  # 10MB
+        futures = []
+        start = 0
+        index = 0
+
+        with ThreadPoolExecutor(max_workers=self.task_num) as executor:
+            while start < video.content_len:
+                end = min(start + chunk_size, video.content_len) - 1
+                if end < start:
+                    end = start
+                f = executor.submit(self.download_chunk, video, (start, end), index)
+                futures.append(f)
+                start = end + 1
+                index += 1
+
+            for f in as_completed(futures):
+                f.result()  # 传播异常
+
+        return index
+
+    def download_audio(self, video) -> None:
+        """下载音频流"""
+        if not video.audio_url:
+            return
+        r = self.session.get(video.audio_url)
+        filepath = f"{self.dir}/audio.mp3"
+        with open(filepath, "wb") as f:
+            f.write(r.content)

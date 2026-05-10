@@ -1,5 +1,6 @@
 """Downloader 初始化与登录验证测试"""
 
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -148,3 +149,69 @@ class TestBuildVideo:
         assert video.content_len == 999999
         assert video.audio_url == ""
         assert video.video_url == "https://example.com/v.flv"
+
+
+class TestDownloadChunks:
+    @patch.object(requests.Session, "get")
+    def test_download_chunks(self, mock_get, tmp_path):
+        from bilidown.model import Video
+
+        # Mock response for chunk download
+        mock_response = MagicMock()
+        mock_response.iter_content.return_value = [b"a" * 1024, b"b" * 1024]
+        mock_response.headers = {}
+        mock_get.return_value = mock_response
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="https://example.com/v",
+            audio_url="", title="test", format="mp4",
+            duration=60, content_len=10 * 1024 * 1024 + 512,  # just over 10MB
+        )
+
+        d = Downloader(task_num=2)
+        d.dir = str(tmp_path)
+        chunk_count = d.download_chunks(video)
+
+        assert chunk_count == 2
+        # Verify files were created
+        assert (tmp_path / "chunk_0").exists()
+        assert (tmp_path / "chunk_1").exists()
+
+
+class TestDownloadAudio:
+    @patch.object(requests.Session, "get")
+    def test_download_audio(self, mock_get, tmp_path):
+        from bilidown.model import Video
+
+        mock_response = MagicMock()
+        mock_response.content = b"fake_audio_data"
+        mock_get.return_value = mock_response
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="https://example.com/a",
+            title="test", format="mp4", duration=60, content_len=1000,
+        )
+
+        d = Downloader()
+        d.dir = str(tmp_path)
+        d.download_audio(video)
+
+        assert (tmp_path / "audio.mp3").exists()
+        assert (tmp_path / "audio.mp3").read_bytes() == b"fake_audio_data"
+
+    def test_download_audio_skip_when_empty(self, tmp_path):
+        from bilidown.model import Video
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="",
+            title="test", format="mp4", duration=60, content_len=1000,
+        )
+
+        d = Downloader()
+        d.dir = str(tmp_path)
+        d.download_audio(video)  # 不抛异常，不创建文件
+
+        assert not (tmp_path / "audio.mp3").exists()
