@@ -75,7 +75,7 @@ class Downloader:
         }
         return mapping.get(content_type, "mp4")
 
-    def build_video(self, bv: str):
+    def build_video(self, bv: str) -> "Video":
         """根据 BV 号构建 Video 对象"""
         from .model import Video
         from .util import replace_illegal_chars_in_windows
@@ -84,16 +84,32 @@ class Downloader:
 
         # Step 1: 获取视频基本信息
         info_url = f"{self.API_INFO}{bv}"
-        info = self.session.get(info_url).json()["data"]
+        try:
+            resp = self.session.get(info_url, timeout=10)
+            resp.raise_for_status()
+            info = resp.json()["data"]
+        except requests.RequestException as e:
+            raise VideoInfoError(f"请求视频信息失败: {e}")
+        except (KeyError, ValueError, TypeError) as e:
+            raise VideoInfoError(f"解析视频信息响应失败: {e}")
+
         title = replace_illegal_chars_in_windows(info.get("title", bv))
         cid = info["cid"]
         duration = info["duration"]
 
         # Step 2: 获取播放地址
-        play = self.session.get(
-            self.API_PLAY,
-            params={"bvid": bv, "cid": cid, "fnval": "2000"},
-        ).json()["data"]
+        try:
+            resp = self.session.get(
+                self.API_PLAY,
+                params={"bvid": bv, "cid": cid, "fnval": "2000"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            play = resp.json()["data"]
+        except requests.RequestException as e:
+            raise VideoInfoError(f"请求播放地址失败: {e}")
+        except (KeyError, ValueError, TypeError) as e:
+            raise VideoInfoError(f"解析播放地址响应失败: {e}")
 
         # Step 3: 解析 DASH 或 FLV
         if "dash" in play and play["dash"] is not None:

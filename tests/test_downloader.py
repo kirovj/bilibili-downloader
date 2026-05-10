@@ -102,3 +102,49 @@ class TestBuildVideo:
         assert video.duration == 360
         assert video.content_len == 104857600
         assert video.audio_url == "https://example.com/a.m4s"
+
+    @patch.object(requests.Session, "head")
+    @patch.object(requests.Session, "get")
+    def test_build_video_flv(self, mock_get, mock_head):
+        from bilidown.model import Video
+
+        # 响应0: check_login
+        resp0 = MagicMock()
+        resp0.json.return_value = {"data": {"isLogin": True}}
+        resp0.headers = {}
+
+        # 响应1: 视频基本信息
+        resp1 = MagicMock()
+        resp1.json.return_value = {
+            "data": {"title": "FLV视频", "cid": 67890, "duration": 180}
+        }
+        resp1.headers = {}
+
+        # 响应2: FLV 播放地址 (无 dash 字段)
+        resp2 = MagicMock()
+        resp2.json.return_value = {
+            "data": {
+                "durl": [{"url": "https://example.com/v.flv"}],
+            }
+        }
+        resp2.headers = {}
+
+        # 响应3: HEAD 请求获取 content length
+        resp3 = MagicMock()
+        resp3.headers = {"Content-Type": "video/x-flv", "Content-Length": "999999"}
+        resp3.json.side_effect = ValueError  # not called, just in case
+
+        mock_get.side_effect = [resp0, resp1, resp2]
+        mock_head.return_value = resp3
+
+        d = Downloader()
+        video = d.build_video("BV1yy")
+
+        assert video.bv == "BV1yy"
+        assert video.cid == 67890
+        assert video.title == "FLV视频"
+        assert video.format == "flv"
+        assert video.duration == 180
+        assert video.content_len == 999999
+        assert video.audio_url == ""
+        assert video.video_url == "https://example.com/v.flv"
