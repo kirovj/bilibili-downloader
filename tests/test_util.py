@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 
 import pytest
@@ -24,7 +25,7 @@ def test_write_bytes_to_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         filepath = os.path.join(tmpdir, "test.bin")
         write_bytes_to_file(filepath, b"hello", 0)
-        write_bytes_to_file(filepath, b" world", 6)
+        write_bytes_to_file(filepath, b" world", 5)
         with open(filepath, "rb") as f:
             content = f.read()
         assert content == b"hello world"
@@ -33,7 +34,7 @@ def test_write_bytes_to_file():
 def test_mix_video_audio_no_files():
     """ffmpeg not found or missing files — should raise subprocess.CalledProcessError or FileNotFoundError"""
     with tempfile.TemporaryDirectory() as tmpdir:
-        with pytest.raises((FileNotFoundError, Exception)):
+        with pytest.raises(subprocess.CalledProcessError):
             mix_video_audio(
                 os.path.join(tmpdir, "video.mp4"),
                 os.path.join(tmpdir, "audio.mp3"),

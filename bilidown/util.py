@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 
@@ -21,7 +22,10 @@ def replace_illegal_chars_in_windows(value: str) -> str:
 
 def write_bytes_to_file(filepath: str, data: bytes, offset: int) -> None:
     """带偏移量的文件写入"""
-    with open(filepath, "ab") as f:
+    if not os.path.exists(filepath):
+        with open(filepath, "wb") as f:
+            pass
+    with open(filepath, "r+b") as f:
         f.seek(offset)
         f.write(data)
 
