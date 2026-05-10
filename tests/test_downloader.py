@@ -185,7 +185,7 @@ class TestDownloadAudio:
         from bilidown.model import Video
 
         mock_response = MagicMock()
-        mock_response.content = b"fake_audio_data"
+        mock_response.iter_content.return_value = [b"fake_audio_data"]
         mock_get.return_value = mock_response
 
         video = Video(

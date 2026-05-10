@@ -4,6 +4,8 @@ import os
 
 import requests
 
+from .model import Video
+
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36"
 
@@ -140,7 +142,7 @@ class Downloader:
             content_len=content_len,
         )
 
-    def download_chunk(self, video, range_tuple: tuple, index: int) -> None:
+    def download_chunk(self, video: "Video", range_tuple: tuple, index: int) -> None:
         """下载单个视频分块"""
         from .util import write_bytes_to_file
 
@@ -149,7 +151,9 @@ class Downloader:
             video.video_url,
             headers={"Range": f"bytes={start}-{end}"},
             stream=True,
+            timeout=30,
         )
+        r.raise_for_status()
         filepath = f"{self.dir}/chunk_{index}"
         offset = 0
         for chunk in r.iter_content(chunk_size=8192):
@@ -157,7 +161,7 @@ class Downloader:
                 write_bytes_to_file(filepath, chunk, offset)
                 offset += len(chunk)
 
-    def download_chunks(self, video) -> int:
+    def download_chunks(self, video: "Video") -> int:
         """并发分块下载视频"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -181,11 +185,14 @@ class Downloader:
 
         return index
 
-    def download_audio(self, video) -> None:
+    def download_audio(self, video: "Video") -> None:
         """下载音频流"""
         if not video.audio_url:
             return
-        r = self.session.get(video.audio_url)
+        r = self.session.get(video.audio_url, stream=True, timeout=30)
+        r.raise_for_status()
         filepath = f"{self.dir}/audio.mp3"
         with open(filepath, "wb") as f:
-            f.write(r.content)
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
