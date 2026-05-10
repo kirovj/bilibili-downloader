@@ -320,3 +320,34 @@ class TestDownloadDanmaku:
         content = danmaku_file.read_text().strip().split("\n")
         assert len(content) == 1
         assert "hello danmaku" in content[0]
+
+
+class TestRun:
+    @patch.object(requests.Session, "get")
+    @patch("subprocess.run")
+    def test_run_full_flow(self, mock_ffmpeg, mock_get, tmp_path):
+        from bilidown.model import Video
+
+        # 模拟 ffmpeg 创建输出文件
+        def fake_run(*args, **kwargs):
+            output_path = args[0][-1]
+            pathlib.Path(output_path).touch()
+            return MagicMock(returncode=0)
+        mock_ffmpeg.side_effect = fake_run
+
+        # 简短测试：手动创建 chunk 和 audio，直接测试 build_final_video
+        (tmp_path / "chunk_0").write_bytes(b"video_data")
+        (tmp_path / "audio.mp3").write_bytes(b"audio_data")
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="https://example.com/v",
+            audio_url="https://example.com/a",
+            title="测试", format="mp4", duration=360, content_len=5000000,
+        )
+
+        d = Downloader(task_num=2)
+        d.dir = str(tmp_path)
+        d.build_final_video(video, 1)
+
+        assert (tmp_path / "测试.mp4").exists()

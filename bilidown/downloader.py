@@ -258,3 +258,30 @@ class Downloader:
                 for elem in results[i].elems:
                     d = elem.to_dict()
                     f.write(json.dumps(d, ensure_ascii=False) + "\n")
+
+    def run(self, bv: str) -> None:
+        """执行完整的下载流程"""
+        import os
+
+        video = self.build_video(bv)
+
+        # 创建输出目录
+        dir_name = f"{video.title}_{bv}"
+        try:
+            os.makedirs(dir_name, exist_ok=True)
+            self.dir = dir_name
+        except OSError:
+            os.makedirs(bv, exist_ok=True)
+            self.dir = bv
+
+        if video.content_len == 0:
+            print(f"download {video.title} fail, video size is 0")
+            return
+
+        print(f'download {video.bv} start, title: "{video.title}"')
+
+        chunk_count = self.download_chunks(video)
+        self.download_audio(video)
+        self.build_final_video(video, chunk_count)
+        self.download_danmaku(video)
+        print(f'download {video.bv} finished')
