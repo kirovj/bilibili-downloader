@@ -42,11 +42,18 @@ class Downloader:
             "Referer": "https://www.bilibili.com/",
         })
         if os.path.exists("cookie.txt"):
-            with open("cookie.txt") as f:
-                self.session.headers["Cookie"] = f.read().strip()
+            try:
+                with open("cookie.txt") as f:
+                    self.session.headers["Cookie"] = f.read().strip()
+            except OSError as e:
+                print(f"读取 cookie.txt 失败: {e}")
 
     def check_login(self) -> None:
         """验证 Cookie 是否有效"""
-        r = self.session.get(self.API_USERINFO).json()
-        if not r.get("data", {}).get("isLogin"):
+        try:
+            r = self.session.get(self.API_USERINFO, timeout=10)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            raise LoginFailError(f"登录验证请求失败: {e}")
+        if not r.json().get("data", {}).get("isLogin"):
             raise LoginFailError("Cookie 登录验证失败")
