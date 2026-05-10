@@ -1,5 +1,7 @@
 """Downloader 初始化与登录验证测试"""
 
+import pathlib
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, patch
 
@@ -215,3 +217,82 @@ class TestDownloadAudio:
         d.download_audio(video)  # 不抛异常，不创建文件
 
         assert not (tmp_path / "audio.mp3").exists()
+
+
+class TestBuildFinalVideo:
+    @patch("subprocess.run")
+    def test_build_final_video(self, mock_run, tmp_path):
+        from bilidown.model import Video
+
+        # 创建模拟 chunk 文件
+        (tmp_path / "chunk_0").write_bytes(b"aaaa")
+        (tmp_path / "chunk_1").write_bytes(b"bbbb")
+        # 创建音频文件
+        (tmp_path / "audio.mp3").write_bytes(b"audio")
+
+        # 模拟 ffmpeg 创建输出文件
+        def fake_run(*args, **kwargs):
+            # args[0] 是命令行列表，最后一个参数是输出路径
+            output_path = args[0][-1]
+            pathlib.Path(output_path).touch()
+            return MagicMock()
+        mock_run.side_effect = fake_run
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="https://example.com/a",
+            title="test", format="mp4", duration=60, content_len=1000,
+        )
+
+        d = Downloader()
+        d.dir = str(tmp_path)
+        d.build_final_video(video, 2)
+
+        # 验证 ffmpeg 被调用
+        assert mock_run.called
+        # 验证临时文件被清理
+        assert not (tmp_path / "chunk_0").exists()
+        assert not (tmp_path / "chunk_1").exists()
+        assert not (tmp_path / "video.mp4").exists()
+        assert not (tmp_path / "audio.mp3").exists()
+        # 验证输出文件存在
+        assert (tmp_path / "test.mp4").exists()
+
+
+class TestDownloadDanmaku:
+    @patch.object(requests.Session, "get")
+    def test_download_danmaku_segment(self, mock_get, tmp_path):
+        from bilidown.model import Video
+        from bilidown.danmaku_pb2 import DanmakuSegment, DanmakuElem
+
+        # betterproto 生成的 dataclass，直接通过构造函数赋值
+        elem = DanmakuElem(
+            id=1,
+            progress=1000,
+            mode=1,
+            fontsize=25,
+            color=16777215,
+            mid_hash="abc123",
+            content="hello danmaku",
+            ctime=1600000000,
+        )
+        seg = DanmakuSegment(elems=[elem])
+        mock_response = MagicMock()
+        mock_response.content = bytes(seg)
+        mock_get.return_value = mock_response
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="",
+            title="test", format="mp4", duration=360, content_len=1000,
+        )
+
+        d = Downloader()
+        d.dir = str(tmp_path)
+        d.download_danmaku(video)
+
+        danmaku_file = tmp_path / "danmuku.txt"
+        assert danmaku_file.exists()
+        content = danmaku_file.read_text().strip().split("\n")
+        assert len(content) == 1
+        assert "hello danmaku" in content[0]

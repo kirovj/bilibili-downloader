@@ -36,6 +36,7 @@ class Downloader:
     API_USERINFO = "https://api.bilibili.com/x/web-interface/nav"
     API_INFO = "https://api.bilibili.com/x/web-interface/view?bvid="
     API_PLAY = "https://api.bilibili.com/x/player/playurl"
+    API_BULLET = "http://api.bilibili.com/x/v2/dm/web/seg.so"
 
     def __init__(self, task_num: int = 7):
         self.task_num = min(task_num, 10)
@@ -196,3 +197,63 @@ class Downloader:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+
+    def build_final_video(self, video: "Video", chunk_count: int) -> None:
+        """合并分块并调用 ffmpeg 混流"""
+        import os
+        from .util import mix_video_audio
+
+        video_path = f"{self.dir}/video.{video.format}"
+
+        # 合并所有 chunk
+        with open(video_path, "wb") as out:
+            for i in range(chunk_count):
+                chunk_path = f"{self.dir}/chunk_{i}"
+                with open(chunk_path, "rb") as f:
+                    out.write(f.read())
+                os.remove(chunk_path)
+
+        audio_path = f"{self.dir}/audio.mp3"
+        output_path = f"{self.dir}/{video.title}.{video.format}"
+
+        if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+            mix_video_audio(video_path, audio_path, output_path)
+            os.remove(video_path)
+            os.remove(audio_path)
+        else:
+            os.rename(video_path, output_path)
+
+    def download_danmaku_segment(self, video: "Video", seg_index: int):
+        """下载单个弹幕分段"""
+        from .danmaku_pb2 import DanmakuSegment
+
+        r = self.session.get(
+            self.API_BULLET,
+            params={"oid": video.cid, "segment_index": seg_index, "type": 1},
+            timeout=30,
+        )
+        r.raise_for_status()
+        segment = DanmakuSegment().parse(r.content)
+        return segment
+
+    def download_danmaku(self, video: "Video") -> None:
+        """下载并解析弹幕，写入 JSON Lines 文件"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import json
+
+        bags = (video.duration + 359) // 360  # 每 6 分钟一个 segment
+        segments = []
+
+        with ThreadPoolExecutor(max_workers=self.task_num) as executor:
+            futures = {
+                executor.submit(self.download_danmaku_segment, video, i + 1): i
+                for i in range(bags)
+            }
+            for f in as_completed(futures):
+                segments.append(f.result())
+
+        with open(f"{self.dir}/danmuku.txt", "w", encoding="utf-8") as f:
+            for seg in segments:
+                for elem in seg.elems:
+                    d = elem.to_dict()
+                    f.write(json.dumps(d, ensure_ascii=False) + "\n")
