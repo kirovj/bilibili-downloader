@@ -300,7 +300,7 @@ class Downloader:
 
         # 阶段 2: 下载音频流
         if video.audio_url:
-            with tqdm(unit="B", unit_scale=True, unit_divisor=1024, desc="音频") as audio_pbar:
+            with tqdm(total=0, unit="B", unit_scale=True, unit_divisor=1024, desc="音频") as audio_pbar:
                 self.download_audio(video, pbar=audio_pbar)
 
         # 阶段 3: 合并混流
