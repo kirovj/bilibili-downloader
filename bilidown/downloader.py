@@ -3,11 +3,11 @@
 import os
 
 import requests
+from fake_useragent import UserAgent
 
 from .model import Video
 
-
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36"
+_ua_pool = UserAgent()
 
 
 class DownloadError(Exception):
@@ -43,7 +43,7 @@ class Downloader:
         self.dir = ""
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": UA,
+            "User-Agent": _ua_pool.random,
             "Referer": "https://www.bilibili.com/",
         })
         if os.path.exists("cookie.txt"):
@@ -162,12 +162,12 @@ class Downloader:
                 write_bytes_to_file(filepath, chunk, offset)
                 offset += len(chunk)
 
-    def download_chunks(self, video: "Video") -> int:
-        """并发分块下载视频"""
+    def download_chunks(self, video: "Video", pbar: "tqdm | None" = None) -> int:
+        """并发分块下载视频，可选择传入 tqdm 进度条"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         chunk_size = 10 * 1024 * 1024  # 10MB
-        futures = []
+        futures: dict = {}
         start = 0
         index = 0
 
@@ -177,26 +177,36 @@ class Downloader:
                 if end < start:
                     end = start
                 f = executor.submit(self.download_chunk, video, (start, end), index)
-                futures.append(f)
+                block_size = end - start + 1
+                futures[f] = block_size
                 start = end + 1
                 index += 1
 
             for f in as_completed(futures):
                 f.result()  # 传播异常
+                if pbar:
+                    pbar.update(futures[f])
 
         return index
 
-    def download_audio(self, video: "Video") -> None:
-        """下载音频流"""
+    def download_audio(self, video: "Video", pbar: "tqdm | None" = None) -> None:
+        """下载音频流，可选择传入 tqdm 进度条"""
         if not video.audio_url:
             return
         r = self.session.get(video.audio_url, stream=True, timeout=30)
         r.raise_for_status()
+        if pbar:
+            cl = r.headers.get("Content-Length")
+            if cl:
+                pbar.total = int(cl)
+                pbar.refresh()
         filepath = f"{self.dir}/audio.mp3"
         with open(filepath, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+                    if pbar:
+                        pbar.update(len(chunk))
 
     def build_final_video(self, video: "Video", chunk_count: int) -> None:
         """合并分块并调用 ffmpeg 混流"""
@@ -236,8 +246,8 @@ class Downloader:
         segment = DanmakuSegment().parse(r.content)
         return segment
 
-    def download_danmaku(self, video: "Video") -> None:
-        """下载并解析弹幕，写入 JSON Lines 文件"""
+    def download_danmaku(self, video: "Video", pbar: "tqdm | None" = None) -> None:
+        """下载并解析弹幕，写入 JSON Lines 文件，可选择传入 tqdm 进度条"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import json
 
@@ -252,6 +262,8 @@ class Downloader:
             for f in as_completed(futures):
                 idx = futures[f]
                 results[idx] = f.result()
+                if pbar:
+                    pbar.update(1)
 
         with open(f"{self.dir}/danmuku.txt", "w", encoding="utf-8") as f:
             for i in range(bags):
@@ -262,6 +274,7 @@ class Downloader:
     def run(self, bv: str) -> None:
         """执行完整的下载流程"""
         import os
+        from tqdm import tqdm
 
         video = self.build_video(bv)
 
@@ -280,8 +293,23 @@ class Downloader:
 
         print(f'download {video.bv} start, title: "{video.title}"')
 
-        chunk_count = self.download_chunks(video)
-        self.download_audio(video)
+        # 阶段 1: 下载视频流
+        with tqdm(total=video.content_len, unit="B", unit_scale=True,
+                  unit_divisor=1024, desc="视频") as video_pbar:
+            chunk_count = self.download_chunks(video, pbar=video_pbar)
+
+        # 阶段 2: 下载音频流
+        if video.audio_url:
+            with tqdm(total=0, unit="B", unit_scale=True, unit_divisor=1024, desc="音频") as audio_pbar:
+                self.download_audio(video, pbar=audio_pbar)
+
+        # 阶段 3: 合并混流
+        print("正在合并音视频...")
         self.build_final_video(video, chunk_count)
-        self.download_danmaku(video)
+
+        # 阶段 4: 下载弹幕
+        bags = (video.duration + 359) // 360
+        with tqdm(total=bags, desc="弹幕") as dm_pbar:
+            self.download_danmaku(video, pbar=dm_pbar)
+
         print(f'download {video.bv} finished')

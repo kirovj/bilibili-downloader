@@ -1,3 +1,5 @@
 requests>=2.31
 betterproto>=2.0.0b6
+fake-useragent>=1.5
+tqdm>=4.66
 pytest>=8.0
