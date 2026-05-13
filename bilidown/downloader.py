@@ -162,12 +162,12 @@ class Downloader:
                 write_bytes_to_file(filepath, chunk, offset)
                 offset += len(chunk)
 
-    def download_chunks(self, video: "Video") -> int:
-        """并发分块下载视频"""
+    def download_chunks(self, video: "Video", pbar: "tqdm | None" = None) -> int:
+        """并发分块下载视频，可选择传入 tqdm 进度条"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         chunk_size = 10 * 1024 * 1024  # 10MB
-        futures = []
+        futures: dict = {}
         start = 0
         index = 0
 
@@ -177,12 +177,15 @@ class Downloader:
                 if end < start:
                     end = start
                 f = executor.submit(self.download_chunk, video, (start, end), index)
-                futures.append(f)
+                block_size = end - start + 1
+                futures[f] = block_size
                 start = end + 1
                 index += 1
 
             for f in as_completed(futures):
                 f.result()  # 传播异常
+                if pbar:
+                    pbar.update(futures[f])
 
         return index
 
