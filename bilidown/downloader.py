@@ -195,6 +195,11 @@ class Downloader:
             return
         r = self.session.get(video.audio_url, stream=True, timeout=30)
         r.raise_for_status()
+        if pbar:
+            cl = r.headers.get("Content-Length")
+            if cl:
+                pbar.total = int(cl)
+                pbar.refresh()
         filepath = f"{self.dir}/audio.mp3"
         with open(filepath, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192):
@@ -269,6 +274,7 @@ class Downloader:
     def run(self, bv: str) -> None:
         """执行完整的下载流程"""
         import os
+        from tqdm import tqdm
 
         video = self.build_video(bv)
 
@@ -287,8 +293,25 @@ class Downloader:
 
         print(f'download {video.bv} start, title: "{video.title}"')
 
-        chunk_count = self.download_chunks(video)
-        self.download_audio(video)
+        # 阶段 1: 下载视频流
+        with tqdm(total=video.content_len, unit="B", unit_scale=True,
+                  unit_divisor=1024, desc="视频") as video_pbar:
+            chunk_count = self.download_chunks(video, pbar=video_pbar)
+
+        # 阶段 2: 下载音频流
+        if video.audio_url:
+            with tqdm(unit="B", unit_scale=True, unit_divisor=1024, desc="音频") as audio_pbar:
+                self.download_audio(video, pbar=audio_pbar)
+        else:
+            self.download_audio(video)
+
+        # 阶段 3: 合并混流
+        print("正在合并音视频...")
         self.build_final_video(video, chunk_count)
-        self.download_danmaku(video)
+
+        # 阶段 4: 下载弹幕
+        bags = (video.duration + 359) // 360
+        with tqdm(total=bags, desc="弹幕") as dm_pbar:
+            self.download_danmaku(video, pbar=dm_pbar)
+
         print(f'download {video.bv} finished')
