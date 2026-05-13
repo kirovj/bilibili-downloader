@@ -189,8 +189,8 @@ class Downloader:
 
         return index
 
-    def download_audio(self, video: "Video") -> None:
-        """下载音频流"""
+    def download_audio(self, video: "Video", pbar: "tqdm | None" = None) -> None:
+        """下载音频流，可选择传入 tqdm 进度条"""
         if not video.audio_url:
             return
         r = self.session.get(video.audio_url, stream=True, timeout=30)
@@ -200,6 +200,8 @@ class Downloader:
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
+                    if pbar:
+                        pbar.update(len(chunk))
 
     def build_final_video(self, video: "Video", chunk_count: int) -> None:
         """合并分块并调用 ffmpeg 混流"""
