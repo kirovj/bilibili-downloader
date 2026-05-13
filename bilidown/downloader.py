@@ -241,8 +241,8 @@ class Downloader:
         segment = DanmakuSegment().parse(r.content)
         return segment
 
-    def download_danmaku(self, video: "Video") -> None:
-        """下载并解析弹幕，写入 JSON Lines 文件"""
+    def download_danmaku(self, video: "Video", pbar: "tqdm | None" = None) -> None:
+        """下载并解析弹幕，写入 JSON Lines 文件，可选择传入 tqdm 进度条"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import json
 
@@ -257,6 +257,8 @@ class Downloader:
             for f in as_completed(futures):
                 idx = futures[f]
                 results[idx] = f.result()
+                if pbar:
+                    pbar.update(1)
 
         with open(f"{self.dir}/danmuku.txt", "w", encoding="utf-8") as f:
             for i in range(bags):
