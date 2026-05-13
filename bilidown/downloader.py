@@ -3,11 +3,11 @@
 import os
 
 import requests
+from fake_useragent import UserAgent
 
 from .model import Video
 
-
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36"
+_ua_pool = UserAgent()
 
 
 class DownloadError(Exception):
@@ -43,7 +43,7 @@ class Downloader:
         self.dir = ""
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": UA,
+            "User-Agent": _ua_pool.random,
             "Referer": "https://www.bilibili.com/",
         })
         if os.path.exists("cookie.txt"):

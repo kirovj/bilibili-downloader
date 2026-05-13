@@ -42,6 +42,7 @@ Bilibili（B站）视频与弹幕下载器。通过 BV 号下载视频（支持 
 |---|---|
 | 语言 | Python 3.11+ |
 | HTTP 客户端 | requests 2.31+ |
+| UA 伪装 | fake-useragent 1.5+ |
 | CLI 参数 | argparse（标准库） |
 | 数据模型 | dataclass（标准库） |
 | 序列化 | json（标准库） |
