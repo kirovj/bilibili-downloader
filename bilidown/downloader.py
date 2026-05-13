@@ -302,8 +302,6 @@ class Downloader:
         if video.audio_url:
             with tqdm(unit="B", unit_scale=True, unit_divisor=1024, desc="音频") as audio_pbar:
                 self.download_audio(video, pbar=audio_pbar)
-        else:
-            self.download_audio(video)
 
         # 阶段 3: 合并混流
         print("正在合并音视频...")
