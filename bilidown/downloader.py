@@ -291,7 +291,7 @@ class Downloader:
 
         # 使用 ffmpeg 将 ASS 烧录为硬字幕
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [
                     "ffmpeg",
                     "-i", output_path,
@@ -302,12 +302,19 @@ class Downloader:
                     "-c:a", "copy",
                     temp_path,
                 ],
-                check=True,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
+            if result.returncode != 0:
+                raise subprocess.CalledProcessError(
+                    result.returncode, result.args, result.stdout, result.stderr
+                )
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            print(f"ffmpeg 嵌入字幕失败: {e}")
+            err_detail = ""
+            if hasattr(e, "stderr") and e.stderr:
+                err_detail = e.stderr.decode("utf-8", errors="replace").strip()
+                err_detail = err_detail.split("\n")[-1] if err_detail else ""
+            print(f"ffmpeg 嵌入字幕失败: {err_detail or e}")
             # 清理临时文件
             if os.path.exists(temp_path):
                 os.remove(temp_path)
