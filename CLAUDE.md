@@ -36,7 +36,7 @@
 
 ## 项目详情
 ### 项目简介
-Bilibili（B站）视频与弹幕下载器。通过 BV 号下载视频（支持 DASH 流和传统单流格式），同时下载弹幕（protobuf 格式）并保存为 JSON Lines 文件。支持将弹幕转换为 ASS 字幕并通过 ffmpeg 硬字幕方式集成到视频中。
+Bilibili（B站）视频与弹幕下载器。通过 BV 号下载视频（支持 DASH 流和传统单流格式），同时下载弹幕（protobuf 格式）并保存为 JSON Lines 文件。支持将弹幕转换为 ASS 字幕，通过 ffmpeg `-c copy` 零重编码方式以软字幕混入 MKV 容器。
 
 ### 技术栈
 | 类别 | 技术 |
@@ -52,7 +52,7 @@ Bilibili（B站）视频与弹幕下载器。通过 BV 号下载视频（支持 
 | 并发 | concurrent.futures.ThreadPoolExecutor |
 | 进度条 | tqdm 4.66+ |
 | 测试 | pytest 8.0+ + unittest.mock |
-| 外部依赖 | ffmpeg（运行时，用于合并音视频） |
+| 外部依赖 | ffmpeg（运行时，用于合并音视频和软字幕混流） |
 
 ### 项目结构
 ```
@@ -61,7 +61,7 @@ bilidown/
 ├── __main__.py          # CLI 入口（argparse 参数解析）
 ├── downloader.py        # 核心下载逻辑（Downloader 类、异常类、HTTP 会话管理）
 ├── model.py             # 数据模型（Video dataclass）
-├── util.py              # 工具函数（文件名清理、带偏移写文件、ffmpeg 混流）
+├── util.py              # 工具函数（文件名清理、带偏移写文件、ffmpeg 音视频混流、软字幕混流）
 ├── danmaku_pb2.py       # betterproto 生成的弹幕 protobuf 数据类
 └── danmaku_ass.py       # 弹幕 JSON Lines 转 ASS 字幕格式（DanmakuAssError、convert_danmaku_to_ass()）
 tests/
@@ -77,10 +77,10 @@ tests/
 3. 创建输出目录 `{标题}_{bv}/`
 4. 并发分片下载视频（每片 10MB，并发数由 `-t` 参数控制，最大 10）
 5. 下载音频流（DASH 格式时）
-6. 合并视频分片 -> 调用 ffmpeg 混合音视频 -> 输出最终视频文件
+6. 合并视频分片 -> 调用 ffmpeg 混合音视频 -> 输出 `{标题}.{格式}` 视频文件
 7. 清理临时文件（分片、独立音频文件）
 8. 按 6 分钟一段下载弹幕（protobuf 格式），解码后写入 `danmuku.txt`（JSON Lines）
-9. （可选，通过 `-d` / `--danmaku-ass` 开启）将 `danmuku.txt` 转换为 ASS 字幕格式，通过 ffmpeg 硬字幕方式烧录到视频中
+9. （可选，通过 `-d` / `--danmaku-ass` 开启）将 `danmuku.txt` 转换为 ASS 字幕 -> 调用 ffmpeg `-c copy` 零重编码混流为 `{标题}.mkv` 软字幕 -> 删除原始视频和临时 ASS 文件
 
 ### 构建与运行
 ```bash
@@ -90,7 +90,7 @@ tests/
 # 运行
 .venv/Scripts/python.exe -m bilidown <BV_ID>
 .venv/Scripts/python.exe -m bilidown <BV_ID> -t 5        # 指定并发数（最大 10）
-.venv/Scripts/python.exe -m bilidown <BV_ID> -d           # 下载并嵌入弹幕字幕
+.venv/Scripts/python.exe -m bilidown <BV_ID> -d           # 下载并输出软字幕 MKV 视频
 .venv/Scripts/python.exe -m bilidown <BV_ID> --danmaku-ass  # 同上（长参数）
 
 # 测试
@@ -103,5 +103,6 @@ tests/
 - 项目已从 Rust 重写为 Python（见 `docs/` 下的设计文档）
 - `danmaku_pb2.py` 由 betterproto 预编译生成，无需安装 protoc 编译器
 - `danmaku_ass.py` 负责将弹幕 JSON Lines 转换为 ASS 字幕格式，支持滚动、顶部固定、底部固定三种弹幕模式
-- 弹幕硬字幕嵌入依赖 ffmpeg 重新编码视频（`-c:v libx264 -crf 18`），会增加处理时间
+- 弹幕软字幕通过 ffmpeg `-c copy` 零重编码混流为 MKV，仅做 remux，处理速度极快（秒级）
+- 软字幕模式下输出格式固定为 `.mkv`，原始视频文件会被替换删除
 - 详细设计文档见 `docs/superpowers/specs/`，实现计划见 `docs/superpowers/plans/`
