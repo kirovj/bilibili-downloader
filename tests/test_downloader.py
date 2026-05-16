@@ -351,3 +351,65 @@ class TestRun:
         d.build_final_video(video, 1)
 
         assert (tmp_path / "测试.mp4").exists()
+
+    @patch("subprocess.run")
+    def test_run_with_danmaku_ass(self, mock_ffmpeg, tmp_path):
+        """测试 --danmaku-ass 开启时，生成 ASS 文件并混流为 MKV 软字幕"""
+        from bilidown.model import Video
+
+        # 模拟 ffmpeg 创建 MKV 输出文件
+        def fake_run(*args, **kwargs):
+            output_path = args[0][-1]
+            pathlib.Path(output_path).touch()
+            return MagicMock(returncode=0)
+        mock_ffmpeg.side_effect = fake_run
+
+        # 创建模拟 danmuku.txt
+        danmaku_data = {
+            "id": "1", "progress": 1410, "mode": 1,
+            "fontsize": 25, "color": 16777215,
+            "content": "测试弹幕",
+        }
+        import json
+        (tmp_path / "danmuku.txt").write_text(
+            json.dumps(danmaku_data) + "\n", encoding="utf-8"
+        )
+
+        # 创建模拟视频输出文件
+        (tmp_path / "测试.mp4").write_bytes(b"fake_video")
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="",
+            title="测试", format="mp4", duration=360, content_len=1000,
+        )
+
+        d = Downloader(task_num=2, danmaku_ass=True)
+        d.dir = str(tmp_path)
+        d._embed_danmaku_ass(video)
+
+        # 验证 ASS 文件生成后被清理
+        ass_path = tmp_path / "danmaku.ass"
+        assert not ass_path.exists()
+
+        # 验证 ffmpeg 被调用，参数包含 "-c copy"
+        assert mock_ffmpeg.called
+        call_args = mock_ffmpeg.call_args[0][0]
+        assert call_args[0] == "ffmpeg"
+        assert "-c" in call_args
+        assert "copy" in call_args
+
+        # 验证输出文件为 MKV
+        assert (tmp_path / "测试.mkv").exists()
+
+        # 验证原始 MP4 被删除
+        assert not (tmp_path / "测试.mp4").exists()
+        # 验证临时 danmaku.ass 被删除
+        assert not (tmp_path / "danmaku.ass").exists()
+
+    def test_run_without_danmaku_ass(self, tmp_path):
+        """测试默认行为（不传 danmaku_ass），不生成 ASS 文件"""
+        d = Downloader(task_num=2)  # 默认 danmaku_ass=False
+        d.dir = str(tmp_path)
+
+        assert not (tmp_path / "danmaku.ass").exists()

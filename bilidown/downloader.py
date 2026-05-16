@@ -1,13 +1,14 @@
 """Bilibili 视频下载器核心模块"""
 
 import os
+import subprocess
 
 import requests
 from fake_useragent import UserAgent
 
 from .model import Video
 
-_ua_pool = UserAgent()
+_ua_pool = UserAgent(browsers=["chrome", "edge"])
 
 
 class DownloadError(Exception):
@@ -38,8 +39,9 @@ class Downloader:
     API_PLAY = "https://api.bilibili.com/x/player/playurl"
     API_BULLET = "http://api.bilibili.com/x/v2/dm/web/seg.so"
 
-    def __init__(self, task_num: int = 7):
+    def __init__(self, task_num: int = 7, danmaku_ass: bool = False):
         self.task_num = min(task_num, 10)
+        self.danmaku_ass = danmaku_ass
         self.dir = ""
         self.session = requests.Session()
         self.session.headers.update({
@@ -122,6 +124,7 @@ class Downloader:
             fmt = self._extract_format(video_data.get("mimeType", ""))
 
             r = self.session.get(video_url, headers={"Range": "bytes=0-1024"})
+            r.raise_for_status()
             content_range = r.headers.get("Content-Range", "")
             content_len = int(content_range.split("/")[-1]) if "/" in content_range else 0
         else:
@@ -129,6 +132,7 @@ class Downloader:
             video_url = durl["url"]
             audio_url = ""
             r = self.session.head(video_url)
+            r.raise_for_status()
             fmt = self._extract_format(r.headers.get("Content-Type", ""))
             content_len = int(r.headers.get("Content-Length", 0))
 
@@ -271,6 +275,41 @@ class Downloader:
                     d = elem.to_dict()
                     f.write(json.dumps(d, ensure_ascii=False) + "\n")
 
+    def _embed_danmaku_ass(self, video: "Video") -> None:
+        """将 danmuku.txt 转换为 ASS 并通过 ffmpeg 以软字幕方式集成到视频中（输出 MKV）"""
+        from .danmaku_ass import convert_danmaku_to_ass, DanmakuAssError
+        from .util import mux_video_with_subtitle
+
+        danmaku_path = f"{self.dir}/danmuku.txt"
+        ass_path = f"{self.dir}/danmaku.ass"
+        video_path = f"{self.dir}/{video.title}.{video.format}"
+        output_path = f"{self.dir}/{video.title}.mkv"
+
+        # 转换弹幕为 ASS
+        try:
+            convert_danmaku_to_ass(danmaku_path, ass_path)
+        except DanmakuAssError as e:
+            print(f"弹幕 ASS 转换失败: {e}")
+            return
+
+        # 使用 ffmpeg 将视频和 ASS 字幕混流为 MKV 软字幕
+        try:
+            mux_video_with_subtitle(video_path, ass_path, output_path)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            err_detail = str(e)
+            print(f"ffmpeg 嵌入字幕失败: {err_detail}")
+            # 清理临时文件
+            if os.path.exists(ass_path):
+                os.remove(ass_path)
+            return
+
+        # 删除原始视频文件（已被 MKV 取代）和临时 ASS 文件
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if os.path.exists(ass_path):
+            os.remove(ass_path)
+        print("弹幕软字幕已集成到视频")
+
     def run(self, bv: str) -> None:
         """执行完整的下载流程"""
         import os
@@ -311,5 +350,9 @@ class Downloader:
         bags = (video.duration + 359) // 360
         with tqdm(total=bags, desc="弹幕") as dm_pbar:
             self.download_danmaku(video, pbar=dm_pbar)
+
+        # 阶段 5: 弹幕转 ASS 并嵌入视频（仅当 --danmaku-ass 开启时）
+        if self.danmaku_ass:
+            self._embed_danmaku_ass(video)
 
         print(f'download {video.bv} finished')
