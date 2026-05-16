@@ -351,3 +351,58 @@ class TestRun:
         d.build_final_video(video, 1)
 
         assert (tmp_path / "测试.mp4").exists()
+
+    @patch("subprocess.run")
+    def test_run_with_danmaku_ass(self, mock_ffmpeg, tmp_path):
+        """测试 --danmaku-ass 开启时，生成 ASS 文件并调用 ffmpeg"""
+        from bilidown.model import Video
+
+        # 模拟 ffmpeg 创建临时输出文件
+        def fake_run(*args, **kwargs):
+            output_path = args[0][-1]
+            pathlib.Path(output_path).touch()
+            return MagicMock(returncode=0)
+        mock_ffmpeg.side_effect = fake_run
+
+        # 创建模拟 danmuku.txt
+        danmaku_data = {
+            "id": "1", "progress": 1410, "mode": 1,
+            "fontsize": 25, "color": 16777215,
+            "content": "测试弹幕",
+        }
+        import json
+        (tmp_path / "danmuku.txt").write_text(
+            json.dumps(danmaku_data) + "\n", encoding="utf-8"
+        )
+
+        # 创建模拟视频输出文件
+        (tmp_path / "测试.mp4").write_bytes(b"fake_video")
+
+        video = Video(
+            bv="BV1xx", cid=1,
+            video_url="", audio_url="",
+            title="测试", format="mp4", duration=360, content_len=1000,
+        )
+
+        d = Downloader(task_num=2, danmaku_ass=True)
+        d.dir = str(tmp_path)
+        d._embed_danmaku_ass(video)
+
+        # 验证 ASS 文件生成
+        ass_path = tmp_path / "danmaku.ass"
+        assert ass_path.exists()
+        ass_content = ass_path.read_text(encoding="utf-8")
+        assert "测试弹幕" in ass_content
+
+        # 验证 ffmpeg 被调用（第一个参数是 ffmpeg）
+        assert mock_ffmpeg.called
+        call_args = mock_ffmpeg.call_args[0][0]
+        assert call_args[0] == "ffmpeg"
+        assert "ass=" in call_args[4]  # -vf 参数值（ass=路径）
+
+    def test_run_without_danmaku_ass(self, tmp_path):
+        """测试默认行为（不传 danmaku_ass），不生成 ASS 文件"""
+        d = Downloader(task_num=2)  # 默认 danmaku_ass=False
+        d.dir = str(tmp_path)
+
+        assert not (tmp_path / "danmaku.ass").exists()
