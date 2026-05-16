@@ -7,7 +7,7 @@ from fake_useragent import UserAgent
 
 from .model import Video
 
-_ua_pool = UserAgent()
+_ua_pool = UserAgent(browsers=["chrome", "edge"])
 
 
 class DownloadError(Exception):
@@ -123,6 +123,7 @@ class Downloader:
             fmt = self._extract_format(video_data.get("mimeType", ""))
 
             r = self.session.get(video_url, headers={"Range": "bytes=0-1024"})
+            r.raise_for_status()
             content_range = r.headers.get("Content-Range", "")
             content_len = int(content_range.split("/")[-1]) if "/" in content_range else 0
         else:
@@ -130,6 +131,7 @@ class Downloader:
             video_url = durl["url"]
             audio_url = ""
             r = self.session.head(video_url)
+            r.raise_for_status()
             fmt = self._extract_format(r.headers.get("Content-Type", ""))
             content_len = int(r.headers.get("Content-Length", 0))
 
