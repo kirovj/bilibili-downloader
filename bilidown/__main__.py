@@ -20,6 +20,11 @@ def main():
         default=7,
         help="Async task num for downloader (max 10)",
     )
+    parser.add_argument(
+        "--danmaku-ass",
+        action="store_true",
+        help="下载弹幕后生成 ASS 字幕并集成到视频中",
+    )
     args = parser.parse_args()
 
     if args.tasknum > 10:
@@ -31,7 +36,7 @@ def main():
         sys.exit(1)
 
     try:
-        downloader = Downloader(task_num=args.tasknum)
+        downloader = Downloader(task_num=args.tasknum, danmaku_ass=args.danmaku_ass)
         downloader.run(args.bv)
     except Exception as e:
         print(f"error: {e}")
