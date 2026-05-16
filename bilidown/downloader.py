@@ -38,8 +38,9 @@ class Downloader:
     API_PLAY = "https://api.bilibili.com/x/player/playurl"
     API_BULLET = "http://api.bilibili.com/x/v2/dm/web/seg.so"
 
-    def __init__(self, task_num: int = 7):
+    def __init__(self, task_num: int = 7, danmaku_ass: bool = False):
         self.task_num = min(task_num, 10)
+        self.danmaku_ass = danmaku_ass
         self.dir = ""
         self.session = requests.Session()
         self.session.headers.update({
@@ -271,6 +272,51 @@ class Downloader:
                     d = elem.to_dict()
                     f.write(json.dumps(d, ensure_ascii=False) + "\n")
 
+    def _embed_danmaku_ass(self, video: "Video") -> None:
+        """将 danmuku.txt 转换为 ASS 并通过 ffmpeg 集成到视频中"""
+        import subprocess
+        from .danmaku_ass import convert_danmaku_to_ass, DanmakuAssError
+
+        danmaku_path = f"{self.dir}/danmuku.txt"
+        ass_path = f"{self.dir}/danmaku.ass"
+        output_path = f"{self.dir}/{video.title}.{video.format}"
+        temp_path = f"{self.dir}/_temp_danmaku.{video.format}"
+
+        # 转换弹幕为 ASS
+        try:
+            convert_danmaku_to_ass(danmaku_path, ass_path)
+        except DanmakuAssError as e:
+            print(f"弹幕 ASS 转换失败: {e}")
+            return
+
+        # 使用 ffmpeg 将 ASS 烧录为硬字幕
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-i", output_path,
+                    "-vf", f"ass={ass_path}",
+                    "-c:v", "libx264",
+                    "-preset", "medium",
+                    "-crf", "18",
+                    "-c:a", "copy",
+                    temp_path,
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"ffmpeg 嵌入字幕失败: {e}")
+            # 清理临时文件
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return
+
+        # 替换原视频文件
+        os.replace(temp_path, output_path)
+        print("弹幕字幕已集成到视频")
+
     def run(self, bv: str) -> None:
         """执行完整的下载流程"""
         import os
@@ -311,5 +357,9 @@ class Downloader:
         bags = (video.duration + 359) // 360
         with tqdm(total=bags, desc="弹幕") as dm_pbar:
             self.download_danmaku(video, pbar=dm_pbar)
+
+        # 阶段 5: 弹幕转 ASS 并嵌入视频（仅当 --danmaku-ass 开启时）
+        if self.danmaku_ass:
+            self._embed_danmaku_ass(video)
 
         print(f'download {video.bv} finished')
