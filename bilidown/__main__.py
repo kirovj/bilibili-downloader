@@ -21,7 +21,7 @@ def main():
         help="Async task num for downloader (max 10)",
     )
     parser.add_argument(
-        "--danmaku-ass",
+        "-d", "--danmaku-ass",
         action="store_true",
         help="下载弹幕后生成 ASS 字幕并集成到视频中",
     )
