@@ -20,10 +20,11 @@ def _decimal_to_ass_color(dec: int) -> str:
 def _format_ass_time(total_seconds: float) -> str:
     """将秒数转换为 ASS 时间格式 H:MM:SS.cc"""
     total_seconds = max(0, total_seconds)
-    h = int(total_seconds // 3600)
-    m = int((total_seconds % 3600) // 60)
-    s = int(total_seconds % 60)
-    cs = int((total_seconds * 100) % 100)
+    total_cs = int(round(total_seconds * 100))
+    h = total_cs // 360000
+    m = (total_cs % 360000) // 6000
+    s = (total_cs % 6000) // 100
+    cs = total_cs % 100
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
@@ -38,6 +39,7 @@ def _escape_ass_text(content: str) -> str:
     content = content.replace("\\", "\\\\")
     content = content.replace("{", "\\{")
     content = content.replace("}", "\\}")
+    content = content.replace("\n", "\\N")
     return content
 
 
