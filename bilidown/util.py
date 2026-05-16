@@ -51,3 +51,26 @@ def mix_video_audio(video_path: str, audio_path: str, output_path: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+
+def mux_video_with_subtitle(video_path: str, ass_path: str, output_path: str) -> None:
+    """使用 ffmpeg 将视频和 ASS 字幕混流为 MKV 软字幕（-c copy 零重编码）"""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-i",
+            video_path,
+            "-i",
+            ass_path,
+            "-c",
+            "copy",
+            "-map",
+            "0",
+            "-map",
+            "1",
+            output_path,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )

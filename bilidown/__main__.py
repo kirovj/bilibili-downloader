@@ -23,7 +23,7 @@ def main():
     parser.add_argument(
         "-d", "--danmaku-ass",
         action="store_true",
-        help="下载弹幕后生成 ASS 字幕并集成到视频中",
+        help="下载弹幕后生成 ASS 字幕并作为软字幕集成到视频中（输出 MKV 格式）",
     )
     args = parser.parse_args()
 

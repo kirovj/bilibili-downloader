@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 
 import pytest
-from bilidown.util import mix_video_audio, replace_illegal_chars_in_windows, write_bytes_to_file
+from bilidown.util import mix_video_audio, mux_video_with_subtitle, replace_illegal_chars_in_windows, write_bytes_to_file
 
 
 def test_replace_illegal_chars_all():
@@ -39,4 +39,15 @@ def test_mix_video_audio_no_files():
                 os.path.join(tmpdir, "video.mp4"),
                 os.path.join(tmpdir, "audio.mp3"),
                 os.path.join(tmpdir, "output.mp4"),
+            )
+
+
+def test_mux_video_with_subtitle_no_files():
+    """文件不存在时抛出 subprocess.CalledProcessError"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pytest.raises(subprocess.CalledProcessError):
+            mux_video_with_subtitle(
+                os.path.join(tmpdir, "video.mp4"),
+                os.path.join(tmpdir, "danmaku.ass"),
+                os.path.join(tmpdir, "output.mkv"),
             )

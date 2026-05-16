@@ -354,10 +354,10 @@ class TestRun:
 
     @patch("subprocess.run")
     def test_run_with_danmaku_ass(self, mock_ffmpeg, tmp_path):
-        """测试 --danmaku-ass 开启时，生成 ASS 文件并调用 ffmpeg"""
+        """测试 --danmaku-ass 开启时，生成 ASS 文件并混流为 MKV 软字幕"""
         from bilidown.model import Video
 
-        # 模拟 ffmpeg 创建临时输出文件
+        # 模拟 ffmpeg 创建 MKV 输出文件
         def fake_run(*args, **kwargs):
             output_path = args[0][-1]
             pathlib.Path(output_path).touch()
@@ -388,17 +388,24 @@ class TestRun:
         d.dir = str(tmp_path)
         d._embed_danmaku_ass(video)
 
-        # 验证 ASS 文件生成
+        # 验证 ASS 文件生成后被清理
         ass_path = tmp_path / "danmaku.ass"
-        assert ass_path.exists()
-        ass_content = ass_path.read_text(encoding="utf-8")
-        assert "测试弹幕" in ass_content
+        assert not ass_path.exists()
 
-        # 验证 ffmpeg 被调用（第一个参数是 ffmpeg）
+        # 验证 ffmpeg 被调用，参数包含 "-c copy"
         assert mock_ffmpeg.called
         call_args = mock_ffmpeg.call_args[0][0]
         assert call_args[0] == "ffmpeg"
-        assert "ass=" in call_args[4]  # -vf 参数值（ass=路径）
+        assert "-c" in call_args
+        assert "copy" in call_args
+
+        # 验证输出文件为 MKV
+        assert (tmp_path / "测试.mkv").exists()
+
+        # 验证原始 MP4 被删除
+        assert not (tmp_path / "测试.mp4").exists()
+        # 验证临时 danmaku.ass 被删除
+        assert not (tmp_path / "danmaku.ass").exists()
 
     def test_run_without_danmaku_ass(self, tmp_path):
         """测试默认行为（不传 danmaku_ass），不生成 ASS 文件"""

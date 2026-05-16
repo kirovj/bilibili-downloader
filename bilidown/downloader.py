@@ -1,6 +1,7 @@
 """Bilibili 视频下载器核心模块"""
 
 import os
+import subprocess
 
 import requests
 from fake_useragent import UserAgent
@@ -275,14 +276,14 @@ class Downloader:
                     f.write(json.dumps(d, ensure_ascii=False) + "\n")
 
     def _embed_danmaku_ass(self, video: "Video") -> None:
-        """将 danmuku.txt 转换为 ASS 并通过 ffmpeg 集成到视频中"""
-        import subprocess
+        """将 danmuku.txt 转换为 ASS 并通过 ffmpeg 以软字幕方式集成到视频中（输出 MKV）"""
         from .danmaku_ass import convert_danmaku_to_ass, DanmakuAssError
+        from .util import mux_video_with_subtitle
 
         danmaku_path = f"{self.dir}/danmuku.txt"
         ass_path = f"{self.dir}/danmaku.ass"
-        output_path = f"{self.dir}/{video.title}.{video.format}"
-        temp_path = f"{self.dir}/_temp_danmaku.{video.format}"
+        video_path = f"{self.dir}/{video.title}.{video.format}"
+        output_path = f"{self.dir}/{video.title}.mkv"
 
         # 转换弹幕为 ASS
         try:
@@ -291,40 +292,23 @@ class Downloader:
             print(f"弹幕 ASS 转换失败: {e}")
             return
 
-        # 使用 ffmpeg 将 ASS 烧录为硬字幕
+        # 使用 ffmpeg 将视频和 ASS 字幕混流为 MKV 软字幕
         try:
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-i", output_path,
-                    "-vf", f"ass={ass_path}",
-                    "-c:v", "libx264",
-                    "-preset", "medium",
-                    "-crf", "18",
-                    "-c:a", "copy",
-                    temp_path,
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode != 0:
-                raise subprocess.CalledProcessError(
-                    result.returncode, result.args, result.stdout, result.stderr
-                )
+            mux_video_with_subtitle(video_path, ass_path, output_path)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            err_detail = ""
-            if hasattr(e, "stderr") and e.stderr:
-                err_detail = e.stderr.decode("utf-8", errors="replace").strip()
-                err_detail = err_detail.split("\n")[-1] if err_detail else ""
-            print(f"ffmpeg 嵌入字幕失败: {err_detail or e}")
+            err_detail = str(e)
+            print(f"ffmpeg 嵌入字幕失败: {err_detail}")
             # 清理临时文件
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            if os.path.exists(ass_path):
+                os.remove(ass_path)
             return
 
-        # 替换原视频文件
-        os.replace(temp_path, output_path)
-        print("弹幕字幕已集成到视频")
+        # 删除原始视频文件（已被 MKV 取代）和临时 ASS 文件
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if os.path.exists(ass_path):
+            os.remove(ass_path)
+        print("弹幕软字幕已集成到视频")
 
     def run(self, bv: str) -> None:
         """执行完整的下载流程"""
