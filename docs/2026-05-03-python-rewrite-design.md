@@ -2,7 +2,7 @@
 
 **日期**: 2026-05-03（更新于 2026-05-05）
 **目标**: 将 B站视频与弹幕下载器从 Rust 重写为 Python，功能 1:1 照搬
-**虚拟环境**: 项目根目录已存在 `.venv/`（Python 3.14.4），所有操作需在激活虚拟环境后执行
+**虚拟环境**: 项目根目录已存在 `.venv/`（Python 3.10+），所有操作需在激活虚拟环境后执行
 
 ## 项目形态
 
@@ -17,7 +17,7 @@ CLI 工具，通过 `python -m bilidown <bv>` 使用。
 | CLI 框架 | `argparse` | 标准库，零额外依赖 |
 | 弹幕解析 | `betterproto` (v2 beta) | 生成的 dataclass 更 Pythonic，内置 `to_dict()`，纯 Python 编译器无需 protoc |
 | 测试 | `pytest` | 简洁，社区标准 |
-| Python 版本 | 3.14（`.venv`） | 项目已配置虚拟环境 |
+| Python 版本 | 3.10+（`.venv`） | 项目已配置虚拟环境 |
 | 依赖管理 | `requirements.txt` | 用户偏好 |
 
 ## 依赖
@@ -32,7 +32,7 @@ betterproto>=2.0.0b6
 ## 项目结构
 
 ```
-bilibili-downloader/
+bilidown/
 ├── requirements.txt
 ├── cookie.txt              # 用户自备
 ├── README.md

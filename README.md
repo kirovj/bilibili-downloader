@@ -1,4 +1,4 @@
-# bilibili-downloader
+# bilidown
 
 B站视频与弹幕下载器
 

@@ -5,13 +5,13 @@
 
 **Goal:** 将 B站视频与弹幕下载器从 Rust 1:1 重写为 Python CLI 工具
 
-**Architecture:** requests + ThreadPoolExecutor 替代 tokio + reqwest，argparse 替代 clap，betterproto 替代 prost，其余结构照搬原 Rust 版。代码放在 `bilidown/` 包目录下。项目已配置 `.venv/`（Python 3.14.4），所有命令均使用 `.venv/Scripts/python` 和 `.venv/Scripts/pip`。
+**Architecture:** requests + ThreadPoolExecutor 替代 tokio + reqwest，argparse 替代 clap，betterproto 替代 prost，其余结构照搬原 Rust 版。代码放在 `bilidown/` 包目录下。项目已配置 `.venv/`（Python 3.10+），所有命令均使用 `.venv/Scripts/python` 和 `.venv/Scripts/pip`。
 
-**Tech Stack:** Python 3.14 (`.venv`), requests, betterproto, argparse, pytest, ffmpeg(外部)
+**Tech Stack:** Python 3.10+ (`.venv`), requests, betterproto, argparse, pytest, ffmpeg(外部)
 
 **项目结构：**
 ```
-bilibili-downloader/
+bilidown/
 ├── requirements.txt
 ├── cookie.txt
 ├── README.md
